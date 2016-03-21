@@ -1,0 +1,2 @@
+test:
+	c++ -o test main.cpp common.cpp -std=c++11 -I/opt/local/include -L/opt/local/lib -pthread -lglog -g

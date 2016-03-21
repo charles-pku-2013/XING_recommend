@@ -1,0 +1,2 @@
+test:
+	c++ -o test main.cpp common.cpp -std=c++11 -pthread -lglog -g
