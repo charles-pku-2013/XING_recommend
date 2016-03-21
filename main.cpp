@@ -456,14 +456,14 @@ int main( int argc, char **argv )
         init();
 
         cout << "Loading users data and items data..." << endl;
-        std::thread t1(load_user_data, "users_test.csv");
-        std::thread t2(load_item_data, "items_test.csv");
+        std::thread t1(load_user_data, "users.csv");
+        std::thread t2(load_item_data, "items.csv");
 
         t1.join();
         t2.join();
 
         cout << "Loading interaction data..." << endl;
-        load_interaction_data( "interactions_test.csv" );
+        load_interaction_data( "interactions.csv" );
         print_data_info();
         handle_command();
 
