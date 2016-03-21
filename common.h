@@ -4,21 +4,28 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
-#include <set>
 #include <memory>
 #include <ctime>
+#include <set>
 #include <map>
+#include <vector>
 #include <sstream>
 #include <iterator>
 #include <algorithm>
+#include <functional>
 
 class Item;
 class User;
+class InteractionRecord;
 
 typedef std::shared_ptr<Item>       Item_sptr;
+typedef std::shared_ptr<const Item> Item_csptr;
 typedef std::weak_ptr<Item>         Item_wptr;
+typedef std::weak_ptr<const Item>   Item_cwptr;
 typedef std::shared_ptr<User>       User_sptr;
+typedef std::shared_ptr<const User> User_csptr;
 typedef std::weak_ptr<User>         User_wptr;
+typedef std::weak_ptr<const User>   User_cwptr;
 
 
 enum CareerLevel {
@@ -46,6 +53,56 @@ enum INTERACTION_TYPE {
 extern const char *EDU_DEGREE_TEXT[];
 
 
+class InteractionRecord {
+public:
+    InteractionRecord() {}
+    InteractionRecord( User_wptr pUser, Item_wptr pItem,
+                    uint32_t type, const time_t &ts )
+        : m_pUser(pUser), m_pItem(pItem), m_nType(type), m_tTime(ts)
+    {}
+
+    User_wptr user()
+    { return m_pUser; }
+    User_cwptr user() const
+    { return m_pUser; }
+    uint32_t userID() const;
+
+    Item_wptr item()
+    { return m_pItem; }
+    Item_cwptr item() const
+    { return m_pItem; }
+    uint32_t itemID() const;
+
+    uint32_t& type()
+    { return m_nType; }
+    uint32_t type() const
+    { return m_nType; }
+
+    time_t& time()
+    { return m_tTime; }
+    const time_t& time() const
+    { return m_tTime; }
+
+private:
+    User_wptr       m_pUser;
+    Item_wptr       m_pItem;
+    uint32_t        m_nType;
+    time_t          m_tTime;
+};
+
+typedef std::shared_ptr< InteractionRecord >       InteractionRecord_sptr;
+typedef std::shared_ptr< const InteractionRecord > InteractionRecord_csptr;
+typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
+typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
+typedef std::function<bool(const InteractionRecord_wptr&, const InteractionRecord_wptr&)>
+            InteractionRecordCmpFunc;    // for sorting interactions
+typedef std::vector< InteractionRecord_sptr >      InteractArray; // only used to define global var
+extern InteractArray                               g_InteractRecords;
+// below used by User and Item
+typedef std::vector< InteractionRecord_wptr >      InteractionVector;
+typedef InteractionVector    InteractionTable[ N_INTERACTION_TYPE ];
+
+
 class User {
 public:
     enum EDU_DEGREE {
@@ -56,23 +113,12 @@ public:
         N_EDU_DEGREE
     };
 
-    struct InteractItemRecord {
-        uint32_t        itemID;
-        uint32_t        interactType;
-        Item_wptr       pItem;
-        time_t          timestamp;
-
-        InteractItemRecord() {}
-
-        InteractItemRecord( uint32_t id, uint32_t type, Item_wptr ptr, time_t ts )
-                : itemID(id), interactType(type), pItem(ptr), timestamp(ts) {}
-    };
-
-    // 同一用户可能在不同的时间对同一物品有同样的动作，如多次点击
-    typedef std::multimap< uint32_t, InteractItemRecord >  IteractItemMap;
-    typedef IteractItemMap InteractItemDB[N_INTERACTION_TYPE];
-
 public:
+    User() : m_ID(0), m_nCareerLevel(0), m_DiscplineID(0), m_IndustryID(0)
+           , m_nRegion(0), m_nExperienceEntries(0), m_nExperienceYears(0)
+           , m_nExperienceYearsCurrent(0), m_nEduDegree(0)
+    {}
+
     uint32_t& ID() { return m_ID; }
     const uint32_t& ID() const { return m_ID; }
 
@@ -137,11 +183,17 @@ public:
     void addEduFields( uint32_t id )
     { m_nsetEduFields.insert(id); }
 
-    InteractItemDB& interactedItems()
-    { return m_InteractItemDB; }
-    const InteractItemDB& interactedItems() const
-    { return m_InteractItemDB; }
-    void addInteractItem( Item_wptr pItem, uint32_t type, time_t ts );
+    void addInteraction( const InteractionRecord_sptr &p )
+    {  m_InteractionTable[ p->type() ].push_back(p); }
+    InteractionTable& interactionTable()
+    { return m_InteractionTable; }
+    const InteractionTable& interactionTable() const
+    { return m_InteractionTable; }
+    InteractionVector& interactionVector( uint32_t type_index )
+    { return m_InteractionTable[ type_index ]; }
+    const InteractionVector& interactionVector( uint32_t type_index ) const
+    { return m_InteractionTable[ type_index ]; }
+    void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
     uint32_t                m_ID;
@@ -156,7 +208,7 @@ private:
     uint32_t                m_nExperienceYearsCurrent;
     uint32_t                m_nEduDegree;
     std::set<uint32_t>      m_nsetEduFields;
-    InteractItemDB          m_InteractItemDB;
+    InteractionTable        m_InteractionTable;
 };
 
 
@@ -172,21 +224,12 @@ public:
         N_EMPLOYMENT_TYPE
     };
 
-    struct InteractUserRecord {
-        uint32_t    userID;
-        uint32_t    interactType;
-        User_wptr   pUser;
-        time_t      timestamp;
-
-        InteractUserRecord() {}
-        InteractUserRecord( uint32_t id, uint32_t type, User_wptr ptr, time_t ts )
-            : userID(id), interactType(type), pUser(ptr), timestamp(ts) {}
-    };
-
-    typedef std::multimap< uint32_t, InteractUserRecord >  InteractUserMap;
-    typedef InteractUserMap  InteractUserDB[N_INTERACTION_TYPE];
-
 public:
+    Item() : m_ID(0), m_nCareerLevel(0), m_DiscplineID(0), m_IndustryID(0)
+           , m_nRegion(0), m_fLatitude(0.0), m_fLongitude(0.0)
+           , m_nEmploymentType(0), m_tCreateTime(0), m_bActive(false)
+    {}
+
     uint32_t& ID() { return m_ID; }
     const uint32_t& ID() const { return m_ID; }
 
@@ -258,11 +301,17 @@ public:
     void setActive( bool status = true )
     { m_bActive = status; }
 
-    InteractUserDB& interactedUsers()
-    { return m_InteractUserDB; }
-    const InteractUserDB& interactedUsers() const
-    { return m_InteractUserDB; }
-    void addInteractUser( User_wptr pUser, uint32_t type, time_t ts );
+    void addInteraction( const InteractionRecord_sptr &p )
+    {  m_InteractionTable[ p->type() ].push_back(p); }
+    InteractionTable& interactionTable()
+    { return m_InteractionTable; }
+    const InteractionTable& interactionTable() const
+    { return m_InteractionTable; }
+    InteractionVector& interactionVector( uint32_t type_index )
+    { return m_InteractionTable[ type_index ]; }
+    const InteractionVector& interactionVector( uint32_t type_index ) const
+    { return m_InteractionTable[ type_index ]; }
+    void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
     uint32_t                m_ID;
@@ -278,8 +327,9 @@ private:
     std::set<uint32_t>      m_nsetTags;
     time_t                  m_tCreateTime;
     bool                    m_bActive;
-    InteractUserDB          m_InteractUserDB;
+    InteractionTable        m_InteractionTable;
 };
+
 
 
 class UserDB {
@@ -298,13 +348,15 @@ public:
 
     void addUser( const User_sptr &pUser );
 
-    User_wptr queryUser( uint32_t id )
+    bool queryUser( uint32_t id, User_sptr &pRet )
     {
         UserDBRecord &rec = m_UserDB[ id % HASH_SIZE ];
         auto it = rec.find( id );
-        if( it != rec.end() )
-            return it->second;
-        return User_sptr();
+        if( it != rec.end() ) {
+            pRet = it->second;
+            return true;
+        } // if
+        return false;
     }
 
     uint32_t size() const
@@ -313,6 +365,14 @@ public:
         for( uint32_t i = 0; i < HASH_SIZE; ++i )
             totalSize += m_UserDB[i].size();
         return totalSize;
+    }
+
+    void sortInteractions( const InteractionRecordCmpFunc &cmp )
+    {
+        for( uint32_t i = 0; i < HASH_SIZE; ++i ) {
+            for( auto it = m_UserDB[i].begin(); it != m_UserDB[i].end(); ++it )
+                it->second->sortInteractions( cmp );
+        } // for
     }
 
 private:
@@ -335,13 +395,15 @@ public:
 
     void addItem( const Item_sptr &pItem );
 
-    Item_wptr queryItem( uint32_t id )
+    bool queryItem( uint32_t id, Item_sptr &pRet )
     {
         ItemDBRecord &rec = m_ItemDB[ id % HASH_SIZE ];
         auto it = rec.find( id );
-        if( it != rec.end() )
-            return it->second;
-        return Item_sptr();
+        if( it != rec.end() ) {
+            pRet = it->second;
+            return true;
+        } // if
+        return false;
     }
 
     uint32_t size() const
@@ -350,6 +412,14 @@ public:
         for( uint32_t i = 0; i < HASH_SIZE; ++i )
             totalSize += m_ItemDB[i].size();
         return totalSize;
+    }
+
+    void sortInteractions( const InteractionRecordCmpFunc &cmp )
+    {
+        for( uint32_t i = 0; i < HASH_SIZE; ++i ) {
+            for( auto it = m_ItemDB[i].begin(); it != m_ItemDB[i].end(); ++it )
+                it->second->sortInteractions( cmp );
+        } // for
     }
 
 private:

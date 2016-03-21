@@ -4,10 +4,15 @@
 #include <fstream>
 #include <cassert>
 #include <thread>
+#include <cctype>
 
 std::unique_ptr< UserDB >        g_pUserDB;
 std::unique_ptr< ItemDB >        g_pItemDB;
+InteractArray                    g_InteractRecords;
 
+// for test
+static void handle_command();
+static void print_data_info();
 void test();
 void test1();
 
@@ -28,6 +33,57 @@ namespace std {
         os << "EduDegree: " << user.eduDegree() << endl;
         os << "EduFields: ";
         print_container( os, user.eduFields() );
+        
+        uint32_t nTotalActioned = 0;
+        // Clicked
+        {
+            const InteractionVector &v = user.interactionVector( CLICK );
+            os << v.size() << " Clicked items: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->itemID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // Bookmarked
+        {
+            const InteractionVector &v = user.interactionVector( BOOKMARK );
+            os << v.size() << " Bookmarked items: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->itemID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // Replied
+        {
+            const InteractionVector &v = user.interactionVector( REPLY );
+            os << v.size() << " Replied items: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->itemID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // Deleted
+        {
+            const InteractionVector &v = user.interactionVector( DELETE );
+            os << v.size() << " Deleted items: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->itemID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        os << "Totally " << nTotalActioned << " items performed actions by this user." << endl;
 
         return os;
     }
@@ -50,6 +106,57 @@ namespace std {
         os << "createTime: " << item.createTime() << endl;
         os << "Active: " << (item.isActive() ? "Yes" : "No") << endl;
 
+        uint32_t nTotalActioned = 0;
+        // clicked
+        {
+            const InteractionVector &v = item.interactionVector( CLICK );
+            os << v.size() << " users(times) clicked: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->userID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // bookmarked
+        {
+            const InteractionVector &v = item.interactionVector( BOOKMARK );
+            os << v.size() << " users(times) bookmarked: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->userID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // replied
+        {
+            const InteractionVector &v = item.interactionVector( REPLY );
+            os << v.size() << " users(times) replied: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->userID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        // deleted
+        {
+            const InteractionVector &v = item.interactionVector( DELETE );
+            os << v.size() << " users(times) deleted: ";
+            nTotalActioned += v.size();
+            for( auto it = v.begin(); it != v.end(); ++it ) {
+                auto sp = it->lock();
+                cout << sp->userID() << "@" << sp->time() << " ";
+            } // for
+            os << endl;
+        }
+
+        os << "Totally performed action by " << nTotalActioned << " users(times)." << endl;
+
         return os;
     }
 } // namespace std
@@ -68,6 +175,7 @@ bool read_uint_set( char *str, std::set<uint32_t> &uintSet )
     return true;
 }
 
+static
 void load_user_data( const char *filename )
 {
     using namespace std;
@@ -166,7 +274,7 @@ void load_user_data( const char *filename )
     } // while
 }
 
-
+static
 void load_item_data( const char *filename )
 {
     using namespace std;
@@ -269,16 +377,18 @@ void load_item_data( const char *filename )
     } // while
 }
 
-
+static
 void load_interaction_data( const char *filename )
 {
     using namespace std;
 
-    char errstr[128];
     string line;
-    uint32_t userID, itemID, interactType; 
+    uint32_t userID, itemID, interactType;
     unsigned long timestamp;
     ifstream inFile( filename, ios::in );
+    InteractionRecord_sptr pInterRec;
+    User_sptr pUser;
+    Item_sptr pItem;
 
     if( !inFile )
         throw runtime_error( "Cannot open iteraction data file!" );
@@ -291,32 +401,43 @@ void load_interaction_data( const char *filename )
     uint32_t lineCount = 0;
     while( getline(inFile, line) ) {
         ++lineCount;
+        // LOG_EVERY_N(INFO, 10000) << "reading interact " << lineCount << " record......";
         stringstream str(line);
         str >> userID >> itemID >> interactType >> timestamp;
-        if( str.fail() || str.bad() ) {
-            LOG(WARNING) << "read interaction data " << lineCount << " line fail.";
+        assert( interactType < N_INTERACTION_TYPE );
+        if( !g_pUserDB->queryUser(userID, pUser) ) {
+            // LOG(WARNING) << "load_interaction_data cannot find user: " << userID;
             continue;
         } // if
-
-        User_wptr wpUser = g_pUserDB->queryUser( userID );
-        User_sptr spUser = wpUser.lock();
-        if( !spUser ) {
-            LOG(WARNING) << "No info about user " << userID << " in user database.";
+        if( !g_pItemDB->queryItem(itemID, pItem) ) {
+            // LOG(WARNING) << "load_interaction_data cannot find item: " << itemID;
             continue;
         } // if
-        Item_wptr wpItem = g_pItemDB->queryItem( itemID );
-        Item_sptr spItem = wpItem.lock();
-        if( !spItem ) {
-            LOG(WARNING) << "No info about item " << itemID << " in item database.";
-            continue;
-        } // if
-
-        spUser->addInteractItem( wpItem, interactType, (time_t)timestamp );
-        spItem->addInteractUser( wpUser, interactType, (time_t)timestamp );
+        pInterRec = std::make_shared<InteractionRecord>
+                           (pUser, pItem, interactType, timestamp);
+        g_InteractRecords.push_back( pInterRec );
+        pUser->addInteraction( pInterRec );
+        pItem->addInteraction( pInterRec );
     } // while
+
+    // sort users' interactions and items' interaction, by time later to earlier
+    cout << "Sorting interations by time......" << endl;
+    auto sortInteractions = []( const InteractionRecord_wptr &pLeft,
+                                    const InteractionRecord_wptr &pRight )
+    {
+        auto lhs = pLeft.lock();
+        auto rhs = pRight.lock();
+        if( !lhs || !rhs )
+            throw runtime_error( "Sort interaction: object may has been destroyed!" );
+        return lhs->time() > rhs->time();
+    };
+
+    g_pUserDB->sortInteractions( sortInteractions );
+    g_pItemDB->sortInteractions( sortInteractions );
 }
 
 
+static
 void init()
 {
     g_pUserDB.reset( new UserDB );
@@ -341,9 +462,10 @@ int main( int argc, char **argv )
         t1.join();
         t2.join();
 
-        // test1();
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "interactions_test.csv" );
+        print_data_info();
+        handle_command();
 
     } catch ( const exception &ex ) {
         cerr << "Exception: " << ex.what() << endl;
@@ -353,15 +475,78 @@ int main( int argc, char **argv )
     return 0;
 }
 
+static
+void print_user_info( uint32_t id )
+{
+    using namespace std;
+
+    User_sptr pUser;
+    bool result = g_pUserDB->queryUser( id, pUser );
+    if( result )
+        cout << *pUser << endl;
+    else
+        cout << "No user found for id: " << id << endl;
+}
+
+static
+void print_item_info( uint32_t id )
+{
+    using namespace std;
+
+    Item_sptr pItem;
+    bool result = g_pItemDB->queryItem( id, pItem );
+    if( result )
+        cout << *pItem << endl;
+    else
+        cout << "No item found for id: " << id << endl;
+}
+
+static
+void handle_command()
+{
+    using namespace std;
+
+    string line;
+    uint32_t id;
+    char cmd;
+
+    cout << "Please input command:" << endl;
+
+    while( getline(cin, line) ) {
+        stringstream str(line);
+        str >> cmd >> id;
+        cmd = tolower(cmd);
+        if( 'q' == cmd )
+            break;
+        else if( 'u' == cmd )
+            print_user_info( id );
+        else if( 'i' == cmd )
+            print_item_info( id );
+        else {
+            cout << "Invalid command!" << endl;
+            continue;
+        } // if
+    } // while
+
+    cout << "Command prompt quit." << endl;
+}
+
+static
+void print_data_info()
+{
+    using namespace std;
+
+    cout << "n_users: " << g_pUserDB->size() << endl;
+    cout << "n_items: " << g_pItemDB->size() << endl;
+    cout << "n_interactions: " << g_InteractRecords.size() << endl;
+}
+
 
 
 
 void test1()
 {
     using namespace std;
-
-    cout << "n_users: " << g_pUserDB->size() << endl;
-    cout << "n_items: " << g_pItemDB->size() << endl;
 
     // random query test
 /*
@@ -413,3 +598,52 @@ void test()
 
     exit(0);
 }
+
+/*
+ * void load_interaction_data( const char *filename )
+ * {
+ *     using namespace std;
+ *
+ *     char errstr[128];
+ *     string line;
+ *     uint32_t userID, itemID, interactType;
+ *     unsigned long timestamp;
+ *     ifstream inFile( filename, ios::in );
+ *
+ *     if( !inFile )
+ *         throw runtime_error( "Cannot open iteraction data file!" );
+ *
+ *     // skip the title line
+ *     getline( inFile, line );
+ *     if( !inFile )
+ *         throw runtime_error( "Invalid interaction data format!" );
+ *
+ *     uint32_t lineCount = 0;
+ *     while( getline(inFile, line) ) {
+ *         ++lineCount;
+ *         stringstream str(line);
+ *         str >> userID >> itemID >> interactType >> timestamp;
+ *         if( str.fail() || str.bad() ) {
+ *             LOG(WARNING) << "read interaction data " << lineCount << " line fail.";
+ *             continue;
+ *         } // if
+ *
+ *         User_wptr wpUser = g_pUserDB->queryUser( userID );
+ *         User_sptr spUser = wpUser.lock();
+ *         if( !spUser ) {
+ *             LOG(WARNING) << "No info about user " << userID << " in user database.";
+ *             continue;
+ *         } // if
+ *         Item_wptr wpItem = g_pItemDB->queryItem( itemID );
+ *         Item_sptr spItem = wpItem.lock();
+ *         if( !spItem ) {
+ *             LOG(WARNING) << "No info about item " << itemID << " in item database.";
+ *             continue;
+ *         } // if
+ *
+ *         spUser->addInteractItem( wpItem, interactType, (time_t)timestamp );
+ *         spItem->addInteractUser( wpUser, interactType, (time_t)timestamp );
+ *     } // while
+ * }
+ */
+

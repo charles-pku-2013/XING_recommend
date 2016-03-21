@@ -19,39 +19,21 @@ const char *EDU_DEGREE_TEXT[] = {
     "PhD"
 };
 
+uint32_t InteractionRecord::userID() const 
+{ return user().lock()->ID(); }
+uint32_t InteractionRecord::itemID() const 
+{ return item().lock()->ID(); }
 
-void User::addInteractItem( Item_wptr pItem, uint32_t type, time_t ts )
+void User::sortInteractions( const InteractionRecordCmpFunc &cmp )
 {
-    auto sp = pItem.lock();
-    
-    if( !sp )
-        throw std::runtime_error( "Object may has been destroyed." );
-
-    // for test
-    for( int i = 1; i < N_INTERACTION_TYPE; ++i ) {
-        auto loc = m_InteractItemDB[i].equal_range( sp->ID() );
-        if( loc.first != loc.second ) {
-            for( auto it = loc.first; it != loc.second; ++it )
-                LOG(INFO) << "User " << this->ID() << " interacted with "
-                    << it->first << " at " << it->second.timestamp 
-                    << " type is " << it->second.interactType;
-        } // if
-    } // for
-
-    m_InteractItemDB[type].insert( std::make_pair(sp->ID(), 
-                InteractItemRecord(sp->ID(), type, pItem, ts)) );
+    for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
+        sort( m_InteractionTable[i].begin(), m_InteractionTable[i].end(), cmp );
 }
 
-
-void Item::addInteractUser( User_wptr pUser, uint32_t type, time_t ts )
+void Item::sortInteractions( const InteractionRecordCmpFunc &cmp )
 {
-    auto sp = pUser.lock();
-
-    if( !sp )
-        throw std::runtime_error( "Object may has been destroyed." );
-
-    m_InteractUserDB[type].insert( std::make_pair(sp->ID(), 
-                InteractUserRecord(sp->ID(), type, pUser, ts)) );
+    for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
+        sort( m_InteractionTable[i].begin(), m_InteractionTable[i].end(), cmp );
 }
 
 
