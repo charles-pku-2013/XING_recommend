@@ -2,6 +2,11 @@
 #include <glog/logging.h>
 
 
+FAST_ALLOCATOR( InteractionRecord )  InteractionRecord::s_allocator;
+FAST_ALLOCATOR( User )  User::s_allocator;
+FAST_ALLOCATOR( Item )  Item::s_allocator;
+
+
 const char *CAREER_LEVEL_TEXT[] = {
     "Unknown",
     "Student/Intern",

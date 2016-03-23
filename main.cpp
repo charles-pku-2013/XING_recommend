@@ -163,7 +163,7 @@ namespace std {
 
 
 static
-bool read_uint_set( char *str, std::set<uint32_t> &uintSet )
+bool read_uint_set( char *str, UIntSet &uintSet )
 {
     uint32_t id;
     char *saveEnd2 = NULL;
@@ -406,11 +406,11 @@ void load_interaction_data( const char *filename )
         str >> userID >> itemID >> interactType >> timestamp;
         assert( interactType < N_INTERACTION_TYPE );
         if( !g_pUserDB->queryUser(userID, pUser) ) {
-            // LOG(WARNING) << "load_interaction_data cannot find user: " << userID;
+            LOG(INFO) << "load_interaction_data cannot find user: " << userID;
             continue;
         } // if
         if( !g_pItemDB->queryItem(itemID, pItem) ) {
-            // LOG(WARNING) << "load_interaction_data cannot find item: " << itemID;
+            LOG(INFO) << "load_interaction_data cannot find item: " << itemID;
             continue;
         } // if
         pInterRec = std::make_shared<InteractionRecord>

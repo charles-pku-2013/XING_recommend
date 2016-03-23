@@ -13,6 +13,20 @@
 #include <iterator>
 #include <algorithm>
 #include <functional>
+#include <boost/pool/pool_alloc.hpp>
+
+/*
+ * About the allocator usage:
+ * If you are seriously concerned about performance, use fast_pool_allocator 
+ * when dealing with containers such as std::list, and use pool_allocator when 
+ * dealing with containers such as std::vector.
+ */
+// ?? even slower than STL's
+// #define FAST_ALLOCATOR(type)     boost::fast_pool_allocator<type>
+// #define POOL_ALLOCATOR(type)     boost::pool_allocator<type>
+#define FAST_ALLOCATOR(type)     std::allocator<type>
+#define POOL_ALLOCATOR(type)     std::allocator<type>
+
 
 class Item;
 class User;
@@ -83,11 +97,23 @@ public:
     const time_t& time() const
     { return m_tTime; }
 
+    static void* operator new( std::size_t sz )
+    { return s_allocator.allocate( 1 ); }
+
+    static void operator delete( void *p )
+    { s_allocator.deallocate( static_cast<InteractionRecord*>(p), 1 ); }
+
 private:
     User_wptr       m_pUser;
     Item_wptr       m_pItem;
     uint32_t        m_nType;
     time_t          m_tTime;
+
+    // not used memory op
+    static void* operator new[]( std::size_t sz );
+    static void operator delete[]( void *p );
+
+    static FAST_ALLOCATOR( InteractionRecord )  s_allocator;
 };
 
 typedef std::shared_ptr< InteractionRecord >       InteractionRecord_sptr;
@@ -96,11 +122,17 @@ typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
 typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
 typedef std::function<bool(const InteractionRecord_wptr&, const InteractionRecord_wptr&)>
             InteractionRecordCmpFunc;    // for sorting interactions
-typedef std::vector< InteractionRecord_sptr >      InteractArray; // only used to define global var
+typedef std::vector< InteractionRecord_sptr, 
+            POOL_ALLOCATOR(InteractionRecord_sptr) >      InteractArray; // only used to define global var
 extern InteractArray                               g_InteractRecords;
 // below used by User and Item
-typedef std::vector< InteractionRecord_wptr >      InteractionVector;
+typedef std::vector< InteractionRecord_wptr,
+            POOL_ALLOCATOR(InteractionRecord_wptr) >      InteractionVector;
 typedef InteractionVector    InteractionTable[ N_INTERACTION_TYPE ];
+
+// redefine the basic STL containers, replace their allocators
+typedef std::set< uint32_t, std::less<uint32_t>, FAST_ALLOCATOR(uint32_t) >  UIntSet;
+typedef std::basic_string< char, std::char_traits<char>, POOL_ALLOCATOR(char) > String;
 
 
 class User {
@@ -122,9 +154,9 @@ public:
     uint32_t& ID() { return m_ID; }
     const uint32_t& ID() const { return m_ID; }
 
-    std::set<uint32_t>& jobRoles()
+    UIntSet& jobRoles()
     { return m_nsetJobRoles; }
-    const std::set<uint32_t>& jobRoles() const
+    const UIntSet& jobRoles() const
     { return m_nsetJobRoles; }
     void addJobRole( uint32_t id )
     { m_nsetJobRoles.insert(id); }
@@ -146,9 +178,9 @@ public:
     const uint32_t& industryID() const
     { return m_IndustryID; }
 
-    std::string& country()
+    String& country()
     { return m_strCountry; }
-    const std::string& country() const
+    const String& country() const
     { return m_strCountry; }
 
     uint32_t& region()
@@ -176,9 +208,9 @@ public:
     const uint32_t& eduDegree() const
     { return m_nEduDegree; }
 
-    std::set<uint32_t>& eduFields()
+    UIntSet& eduFields()
     { return m_nsetEduFields; }
-    const std::set<uint32_t>& eduFields() const
+    const UIntSet& eduFields() const
     { return m_nsetEduFields; }
     void addEduFields( uint32_t id )
     { m_nsetEduFields.insert(id); }
@@ -195,20 +227,32 @@ public:
     { return m_InteractionTable[ type_index ]; }
     void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
+    static void* operator new( std::size_t sz )
+    { return s_allocator.allocate( 1 ); }
+
+    static void operator delete( void *p )
+    { s_allocator.deallocate( static_cast<User*>(p), 1 ); }
+
 private:
     uint32_t                m_ID;
-    std::set<uint32_t>      m_nsetJobRoles;
+    UIntSet                 m_nsetJobRoles;
     uint32_t                m_nCareerLevel;
     uint32_t                m_DiscplineID;
     uint32_t                m_IndustryID;
-    std::string             m_strCountry;
+    String             m_strCountry;
     uint32_t                m_nRegion;
     uint32_t                m_nExperienceEntries;
     uint32_t                m_nExperienceYears;
     uint32_t                m_nExperienceYearsCurrent;
     uint32_t                m_nEduDegree;
-    std::set<uint32_t>      m_nsetEduFields;
+    UIntSet                 m_nsetEduFields;
     InteractionTable        m_InteractionTable;
+
+    // not used memory op
+    static void* operator new[]( std::size_t sz );
+    static void operator delete[]( void *p );
+
+    static FAST_ALLOCATOR( User )  s_allocator;
 };
 
 
@@ -233,9 +277,9 @@ public:
     uint32_t& ID() { return m_ID; }
     const uint32_t& ID() const { return m_ID; }
 
-    std::set<uint32_t>& title()
+    UIntSet& title()
     { return m_nsetTitle; }
-    const std::set<uint32_t>& title() const
+    const UIntSet& title() const
     { return m_nsetTitle; }
     void addTitle( uint32_t id )
     { m_nsetTitle.insert(id); }
@@ -257,9 +301,9 @@ public:
     const uint32_t& industryID() const
     { return m_IndustryID; }
 
-    std::string& country()
+    String& country()
     { return m_strCountry; }
-    const std::string& country() const
+    const String& country() const
     { return m_strCountry; }
 
     uint32_t& region()
@@ -282,9 +326,9 @@ public:
     const uint32_t& employmentType() const
     { return m_nEmploymentType; }
 
-    std::set<uint32_t>& tags()
+    UIntSet& tags()
     { return m_nsetTags; }
-    const std::set<uint32_t>& tags() const
+    const UIntSet& tags() const
     { return m_nsetTags; }
     void addTag( uint32_t id )
     { m_nsetTags.insert(id); }
@@ -313,21 +357,33 @@ public:
     { return m_InteractionTable[ type_index ]; }
     void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
+    static void* operator new( std::size_t sz )
+    { return s_allocator.allocate( 1 ); }
+
+    static void operator delete( void *p )
+    { s_allocator.deallocate( static_cast<Item*>(p), 1 ); }
+
 private:
     uint32_t                m_ID;
-    std::set<uint32_t>      m_nsetTitle;
+    UIntSet                 m_nsetTitle;
     uint32_t                m_nCareerLevel;
     uint32_t                m_DiscplineID;
     uint32_t                m_IndustryID;
-    std::string             m_strCountry;
+    String                  m_strCountry;
     uint32_t                m_nRegion;
     float                   m_fLatitude;   // 0 means NULL
     float                   m_fLongitude;
     uint32_t                m_nEmploymentType;
-    std::set<uint32_t>      m_nsetTags;
+    UIntSet                 m_nsetTags;
     time_t                  m_tCreateTime;
     bool                    m_bActive;
     InteractionTable        m_InteractionTable;
+
+    // not used memory op
+    static void* operator new[]( std::size_t sz );
+    static void operator delete[]( void *p );
+
+    static FAST_ALLOCATOR( Item )  s_allocator;
 };
 
 
@@ -337,7 +393,9 @@ public:
     // total 15w users
     static const uint32_t HASH_SIZE = 1000;
 
-    typedef std::map< uint32_t, User_sptr >   UserDBRecord;
+    typedef std::pair< const uint32_t, User_sptr > _RecordType;
+    typedef std::map< uint32_t, User_sptr, std::less<uint32_t>,
+                   FAST_ALLOCATOR(_RecordType) >   UserDBRecord;
     typedef UserDBRecord            UserDBStorage[HASH_SIZE];
 
 public:
@@ -384,7 +442,9 @@ class ItemDB {
 public:
     // total 1358098 items
     static const uint32_t       HASH_SIZE = 1000;
-    typedef std::map< uint32_t, Item_sptr >   ItemDBRecord;
+    typedef std::pair< uint32_t, Item_sptr >  _RecordType;
+    typedef std::map< uint32_t, Item_sptr, std::less<uint32_t>,
+               FAST_ALLOCATOR(_RecordType) >   ItemDBRecord;
     typedef ItemDBRecord        ItemDBStorage[HASH_SIZE];
 
 public:
