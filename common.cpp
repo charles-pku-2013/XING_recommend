@@ -24,9 +24,9 @@ const char *EDU_DEGREE_TEXT[] = {
     "PhD"
 };
 
-uint32_t InteractionRecord::userID() const 
+uint32_t InteractionRecord::userID() const
 { return user().lock()->ID(); }
-uint32_t InteractionRecord::itemID() const 
+uint32_t InteractionRecord::itemID() const
 { return item().lock()->ID(); }
 
 void User::sortInteractions( const InteractionRecordCmpFunc &cmp )
@@ -82,7 +82,7 @@ void UserDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( std::bind(&UserDB::sortInteractionsThreadFunc, this, 
+        thrgroup.create_thread( std::bind(&UserDB::sortInteractionsThreadFunc, this,
                                     std::ref(index), std::ref(mtx), std::ref(cmp)) );
     thrgroup.join_all();
 }
@@ -95,7 +95,7 @@ void ItemDB::addItem( const Item_sptr &pItem )
     ItemDBRecord& rec = m_ItemDB[ id % HASH_SIZE ];
     boost::unique_lock< ItemDBRecord >  lock(rec);
     rec.insert( std::make_pair(id, pItem) );
-    
+
     // test
     // char errstr[80];
     // sprintf( errstr, "Item %u already exist.", id );
@@ -127,7 +127,7 @@ void ItemDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( std::bind(&ItemDB::sortInteractionsThreadFunc, this, 
+        thrgroup.create_thread( std::bind(&ItemDB::sortInteractionsThreadFunc, this,
                                     std::ref(index), std::ref(mtx), std::ref(cmp)) );
     thrgroup.join_all();
 }

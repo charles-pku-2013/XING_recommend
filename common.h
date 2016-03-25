@@ -124,12 +124,47 @@ typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
 typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
 typedef std::function<bool(const InteractionRecord_wptr&, const InteractionRecord_wptr&)>
             InteractionRecordCmpFunc;    // for sorting interactions
-// typedef std::vector< InteractionRecord_sptr,
-            // POOL_ALLOCATOR(InteractionRecord_sptr) >      InteractArray; // only used to define global var
-struct InteractArray  // only used to define global var
+
+class InteractionStore {
+public:
+    static const uint32_t HASH_SIZE = 10000;
+
+    struct InteractArray
         : std::vector< InteractionRecord_sptr, POOL_ALLOCATOR(InteractionRecord_sptr) >
-        , boost::basic_lockable_adapter< boost::mutex > {};
-extern InteractArray                               g_InteractRecords;
+          , boost::basic_lockable_adapter< boost::mutex > {};
+
+    typedef InteractArray       InteractMatrix[ HASH_SIZE ];
+
+public:
+    InteractionStore() {}
+
+    InteractionStore( uint32_t reserveSize )
+    {
+        for( uint32_t i = 0; i < HASH_SIZE; ++i )
+            m_Store[i].reserve( reserveSize );
+    }
+
+    void add( const InteractionRecord_sptr &p )
+    {
+        uint32_t ts = (uint32_t)(p->time());
+        InteractArray& arr = m_Store[ ts % HASH_SIZE ];
+        boost::unique_lock< InteractArray > lock( arr );
+        arr.push_back( p );
+    }
+
+    std::size_t size() const
+    {
+        std::size_t sz = 0;
+        for( uint32_t i = 0; i < HASH_SIZE; ++i )
+            sz += m_Store[i].size();
+        return sz;
+    }
+
+private:
+    InteractMatrix              m_Store;
+};
+
+
 // below used by User and Item
 // typedef std::vector< InteractionRecord_wptr,
             // POOL_ALLOCATOR(InteractionRecord_wptr) >      InteractionVector;
@@ -513,6 +548,7 @@ private:
 
 extern std::unique_ptr< UserDB >        g_pUserDB;
 extern std::unique_ptr< ItemDB >        g_pItemDB;
+extern std::unique_ptr< InteractionStore > g_InteractStore;
 extern uint32_t                         g_nMaxThread;
 
 

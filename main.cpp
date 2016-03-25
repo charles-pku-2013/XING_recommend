@@ -8,7 +8,7 @@
 
 std::unique_ptr< UserDB >        g_pUserDB;
 std::unique_ptr< ItemDB >        g_pItemDB;
-InteractArray                    g_InteractRecords;
+std::unique_ptr< InteractionStore > g_InteractStore;
 uint32_t                         g_nMaxThread = 1;
 
 // for test
@@ -34,7 +34,7 @@ namespace std {
         os << "EduDegree: " << user.eduDegree() << endl;
         os << "EduFields: ";
         print_container( os, user.eduFields() );
-        
+
         uint32_t nTotalActioned = 0;
         // Clicked
         {
@@ -306,11 +306,11 @@ void load_user_data( const char *filename )
         // cout << *pUser << endl;
         g_pUserDB->addUser( pUser );
     }; // end lambda
-    
+
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( std::bind(load_file_thread_routine, 
-                                    std::ref(inFile), std::ref(fileMtx), 
+        thrgroup.create_thread( std::bind(load_file_thread_routine,
+                                    std::ref(inFile), std::ref(fileMtx),
                                     BATCH_SIZE, std::ref(lineno), processLine) );
     thrgroup.join_all();
 
@@ -335,7 +335,7 @@ void load_item_data( const char *filename )
     getline( inFile, title );
     if( !inFile )
         throw runtime_error( "Invalid item data format!" );
-    
+
     auto processLine = []( string &line, uint32_t lineCount ) {
         char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
         char errstr[128];
@@ -422,8 +422,8 @@ void load_item_data( const char *filename )
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( std::bind(load_file_thread_routine, 
-                                    std::ref(inFile), std::ref(fileMtx), 
+        thrgroup.create_thread( std::bind(load_file_thread_routine,
+                                    std::ref(inFile), std::ref(fileMtx),
                                     BATCH_SIZE, std::ref(lineno), processLine) );
     thrgroup.join_all();
 
@@ -469,17 +469,15 @@ void load_interaction_data( const char *filename )
         } // if
         pInterRec = std::make_shared< InteractionRecord >
                            (pUser, pItem, interactType, timestamp);
-        boost::unique_lock< InteractArray > lock(g_InteractRecords);
-        g_InteractRecords.push_back( pInterRec );
-        lock.unlock();
+        g_InteractStore->add( pInterRec );
         pUser->addInteraction( pInterRec );
         pItem->addInteraction( pInterRec );
     }; // end processLine
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( std::bind(load_file_thread_routine, 
-                                    std::ref(inFile), std::ref(fileMtx), 
+        thrgroup.create_thread( std::bind(load_file_thread_routine,
+                                    std::ref(inFile), std::ref(fileMtx),
                                     BATCH_SIZE, std::ref(lineno), processLine) );
     thrgroup.join_all();
 
@@ -507,12 +505,11 @@ void init()
 
     g_pUserDB.reset( new UserDB );
     g_pItemDB.reset( new ItemDB );
+    g_InteractStore.reset( new InteractionStore(1000) );
 
     g_nMaxThread = boost::thread::hardware_concurrency();
     if( !g_nMaxThread )
         g_nMaxThread = 1;
-    
-    g_InteractRecords.reserve( N_INTERACTION_RECORDS );
 }
 
 
@@ -607,7 +604,7 @@ void print_data_info()
 
     cout << "n_users: " << g_pUserDB->size() << endl;
     cout << "n_items: " << g_pItemDB->size() << endl;
-    cout << "n_interactions: " << g_InteractRecords.size() << endl;
+    cout << "n_interactions: " << g_InteractStore->size() << endl;
 }
 
 
@@ -721,22 +718,22 @@ void test()
  * void load_user_data( const char *filename )
  * {
  *     using namespace std;
- * 
+ *
  *     char errstr[128];
  *     string line;
  *     char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
  *     User_sptr pUser;
  *     ifstream inFile( filename, ios::in );
  *     boost::mutex  fileMtx;
- * 
+ *
  *     if( !inFile )
  *         throw runtime_error( "Cannot open user data file!" );
- * 
+ *
  *     // skip the title line
  *     getline( inFile, line );
  *     if( !inFile )
  *         throw runtime_error( "Invalid user data format!" );
- * 
+ *
  *     uint32_t lineCount = 0;
  *     while( getline(inFile, line) ) {
  *         ++lineCount;
@@ -811,7 +808,7 @@ void test()
  *         if( (pField = strtok_r(NULL, "\t", &saveEnd1)) ) {
  *             read_uint_set(pField, pUser->eduFields());
  *         } // if
- * 
+ *
  *         // cout << *pUser << endl;
  *         g_pUserDB->addUser( pUser );
  *     } // while

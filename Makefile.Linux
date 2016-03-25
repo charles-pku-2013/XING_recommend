@@ -1,3 +1,4 @@
 test:
-	# c++ -o test main.cpp common.cpp -std=c++11 -pthread -lglog -g
 	c++ -o test main.cpp common.cpp -std=c++11 -pthread -lboost_system -lboost_thread -lglog -O3 -g
+clean:
+	rm -rf test test.*
