@@ -14,11 +14,13 @@
 #include <algorithm>
 #include <functional>
 #include <boost/pool/pool_alloc.hpp>
+#include <boost/thread.hpp>
+#include <boost/thread/lockable_adapter.hpp>
 
 /*
  * About the allocator usage:
- * If you are seriously concerned about performance, use fast_pool_allocator 
- * when dealing with containers such as std::list, and use pool_allocator when 
+ * If you are seriously concerned about performance, use fast_pool_allocator
+ * when dealing with containers such as std::list, and use pool_allocator when
  * dealing with containers such as std::vector.
  */
 // ?? even slower than STL's
@@ -122,12 +124,18 @@ typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
 typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
 typedef std::function<bool(const InteractionRecord_wptr&, const InteractionRecord_wptr&)>
             InteractionRecordCmpFunc;    // for sorting interactions
-typedef std::vector< InteractionRecord_sptr, 
-            POOL_ALLOCATOR(InteractionRecord_sptr) >      InteractArray; // only used to define global var
+// typedef std::vector< InteractionRecord_sptr,
+            // POOL_ALLOCATOR(InteractionRecord_sptr) >      InteractArray; // only used to define global var
+struct InteractArray  // only used to define global var
+        : std::vector< InteractionRecord_sptr, POOL_ALLOCATOR(InteractionRecord_sptr) >
+        , boost::basic_lockable_adapter< boost::mutex > {};
 extern InteractArray                               g_InteractRecords;
 // below used by User and Item
-typedef std::vector< InteractionRecord_wptr,
-            POOL_ALLOCATOR(InteractionRecord_wptr) >      InteractionVector;
+// typedef std::vector< InteractionRecord_wptr,
+            // POOL_ALLOCATOR(InteractionRecord_wptr) >      InteractionVector;
+struct InteractionVector
+        : std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) >
+        , boost::basic_lockable_adapter< boost::mutex > {};
 typedef InteractionVector    InteractionTable[ N_INTERACTION_TYPE ];
 
 // redefine the basic STL containers, replace their allocators
@@ -216,7 +224,12 @@ public:
     { m_nsetEduFields.insert(id); }
 
     void addInteraction( const InteractionRecord_sptr &p )
-    {  m_InteractionTable[ p->type() ].push_back(p); }
+    {
+        InteractionVector& vec = m_InteractionTable[ p->type() ];
+        boost::unique_lock< InteractionVector > lock(vec);
+        vec.push_back(p);
+    }
+
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
@@ -346,7 +359,12 @@ public:
     { m_bActive = status; }
 
     void addInteraction( const InteractionRecord_sptr &p )
-    {  m_InteractionTable[ p->type() ].push_back(p); }
+    {
+        InteractionVector& vec = m_InteractionTable[ p->type() ];
+        boost::unique_lock< InteractionVector > lock(vec);
+        vec.push_back(p);
+    }
+
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
@@ -394,8 +412,14 @@ public:
     static const uint32_t HASH_SIZE = 1000;
 
     typedef std::pair< const uint32_t, User_sptr > _RecordType;
-    typedef std::map< uint32_t, User_sptr, std::less<uint32_t>,
-                   FAST_ALLOCATOR(_RecordType) >   UserDBRecord;
+    // typedef std::map< uint32_t, User_sptr, std::less<uint32_t>,
+                   // FAST_ALLOCATOR(_RecordType) >   UserDBRecord;
+
+    struct UserDBRecord
+            : std::map< uint32_t, User_sptr, std::less<uint32_t>, FAST_ALLOCATOR(_RecordType) >
+            , boost::basic_lockable_adapter<boost::mutex>
+    {};
+
     typedef UserDBRecord            UserDBStorage[HASH_SIZE];
 
 public:
@@ -425,15 +449,12 @@ public:
         return totalSize;
     }
 
-    void sortInteractions( const InteractionRecordCmpFunc &cmp )
-    {
-        for( uint32_t i = 0; i < HASH_SIZE; ++i ) {
-            for( auto it = m_UserDB[i].begin(); it != m_UserDB[i].end(); ++it )
-                it->second->sortInteractions( cmp );
-        } // for
-    }
+    void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
+    void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    const InteractionRecordCmpFunc &cmp );
+
     UserDBStorage       m_UserDB;
 };
 
@@ -443,8 +464,14 @@ public:
     // total 1358098 items
     static const uint32_t       HASH_SIZE = 1000;
     typedef std::pair< uint32_t, Item_sptr >  _RecordType;
-    typedef std::map< uint32_t, Item_sptr, std::less<uint32_t>,
-               FAST_ALLOCATOR(_RecordType) >   ItemDBRecord;
+    // typedef std::map< uint32_t, Item_sptr, std::less<uint32_t>,
+               // FAST_ALLOCATOR(_RecordType) >   ItemDBRecord;
+
+    struct ItemDBRecord
+            : std::map< uint32_t, Item_sptr, std::less<uint32_t>, FAST_ALLOCATOR(_RecordType) >
+            , boost::basic_lockable_adapter<boost::mutex>
+    {};
+
     typedef ItemDBRecord        ItemDBStorage[HASH_SIZE];
 
 public:
@@ -474,21 +501,20 @@ public:
         return totalSize;
     }
 
-    void sortInteractions( const InteractionRecordCmpFunc &cmp )
-    {
-        for( uint32_t i = 0; i < HASH_SIZE; ++i ) {
-            for( auto it = m_ItemDB[i].begin(); it != m_ItemDB[i].end(); ++it )
-                it->second->sortInteractions( cmp );
-        } // for
-    }
+    void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
+    void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    const InteractionRecordCmpFunc &cmp );
+
     ItemDBStorage       m_ItemDB;
 };
 
 
 extern std::unique_ptr< UserDB >        g_pUserDB;
 extern std::unique_ptr< ItemDB >        g_pItemDB;
+extern uint32_t                         g_nMaxThread;
+
 
 template < typename T >
 bool read_from_string( const char *s, T &value )

@@ -3,12 +3,13 @@
 #include <iostream>
 #include <fstream>
 #include <cassert>
-#include <thread>
 #include <cctype>
+// #include <thread>
 
 std::unique_ptr< UserDB >        g_pUserDB;
 std::unique_ptr< ItemDB >        g_pItemDB;
 InteractArray                    g_InteractRecords;
+uint32_t                         g_nMaxThread = 1;
 
 // for test
 static void handle_command();
@@ -175,33 +176,66 @@ bool read_uint_set( char *str, UIntSet &uintSet )
     return true;
 }
 
+//!! processLine 不能用引用传入!!
+static
+void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
+                const uint32_t BATCH_SIZE, uint32_t &lineno,
+                std::function< void(std::string&, uint32_t) > processLine )
+{
+    using namespace std;
+
+    int i = 0, j = 0;
+    vector< string > lines( BATCH_SIZE );
+    vector< uint32_t > lineIDs( BATCH_SIZE );
+
+    while (true) {
+        boost::unique_lock< boost::mutex >  lock(fileMtx);
+        for( i = 0; i < BATCH_SIZE; ++i ) {
+            if( !getline(inFile, lines[i]) )
+                break;
+            lineIDs[i] = ++lineno;
+        } // for
+        lock.unlock();
+
+        for( j = 0; j < i; ++j ) {
+            processLine( lines[j], lineIDs[j] );
+        } // for
+
+        if( i < BATCH_SIZE )
+            break;   // jump out while true
+    } // while
+
+    return;
+}
+
 static
 void load_user_data( const char *filename )
 {
     using namespace std;
 
-    char errstr[128];
-    string line;
-    char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
-    User_sptr pUser;
     ifstream inFile( filename, ios::in );
+    boost::mutex  fileMtx;
+    const uint32_t  BATCH_SIZE = 20;   // 每个线程一次处理行数
+    uint32_t lineno = 0;
 
     if( !inFile )
         throw runtime_error( "Cannot open user data file!" );
 
-    // skip the title line
-    getline( inFile, line );
+    // skip the title
+    string title;
+    getline( inFile, title );
     if( !inFile )
         throw runtime_error( "Invalid user data format!" );
 
-    uint32_t lineCount = 0;
-    while( getline(inFile, line) ) {
-        ++lineCount;
+    auto processLine = []( string &line, uint32_t lineCount ) {
+        char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
+        char errstr[128];
+        User_sptr pUser = std::make_shared< User >();
         char *pLine = const_cast<char*>(line.c_str());
-        pUser.reset( new User );
+
         // read ID, maybe empty line, so when read fail just skip
         if( !(pField = strtok_r(pLine, "\t", &saveEnd1)) || !read_from_string(pField, pUser->ID()) )
-            continue;
+            return;
         // job roles
         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_uint_set(pField, pUser->jobRoles()) ) {
             sprintf(errstr, "error reading %u record's jobrole!", lineCount);
@@ -271,7 +305,16 @@ void load_user_data( const char *filename )
 
         // cout << *pUser << endl;
         g_pUserDB->addUser( pUser );
-    } // while
+    }; // end lambda
+    
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( std::bind(load_file_thread_routine, 
+                                    std::ref(inFile), std::ref(fileMtx), 
+                                    BATCH_SIZE, std::ref(lineno), processLine) );
+    thrgroup.join_all();
+
+    return;
 }
 
 static
@@ -279,28 +322,29 @@ void load_item_data( const char *filename )
 {
     using namespace std;
 
-    char errstr[128];
-    string line;
-    char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
-    Item_sptr pItem;
     ifstream inFile( filename, ios::in );
+    boost::mutex  fileMtx;
+    const uint32_t  BATCH_SIZE = 20;   // 每个线程一次处理行数
+    uint32_t lineno = 0;
 
     if( !inFile )
         throw runtime_error( "Cannot open item data file!" );
 
     // skip the title line
-    getline( inFile, line );
+    string title;
+    getline( inFile, title );
     if( !inFile )
         throw runtime_error( "Invalid item data format!" );
-
-    uint32_t lineCount = 0;
-    while( getline(inFile, line) ) {
-        ++lineCount;
+    
+    auto processLine = []( string &line, uint32_t lineCount ) {
+        char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
+        char errstr[128];
+        Item_sptr pItem = std::make_shared< Item >();
         char *pLine = const_cast<char*>(line.c_str());
-        pItem.reset( new Item );
+
         // read ID, maybe empty line, so when read fail just skip
         if( !(pField = strtok_r(pLine, "\t", &saveEnd1)) || !read_from_string(pField, pItem->ID()) )
-            continue;
+            return;
         // read title
         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_uint_set(pField, pItem->title()) ) {
             sprintf(errstr, "error reading %u record's title!", lineCount);
@@ -374,7 +418,16 @@ void load_item_data( const char *filename )
 
         // cout << *pItem << endl;
         g_pItemDB->addItem( pItem );
-    } // while
+    }; // end processLine
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( std::bind(load_file_thread_routine, 
+                                    std::ref(inFile), std::ref(fileMtx), 
+                                    BATCH_SIZE, std::ref(lineno), processLine) );
+    thrgroup.join_all();
+
+    return;
 }
 
 static
@@ -382,48 +435,58 @@ void load_interaction_data( const char *filename )
 {
     using namespace std;
 
-    string line;
-    uint32_t userID, itemID, interactType;
-    unsigned long timestamp;
     ifstream inFile( filename, ios::in );
-    InteractionRecord_sptr pInterRec;
-    User_sptr pUser;
-    Item_sptr pItem;
+    boost::mutex  fileMtx;
+    const uint32_t  BATCH_SIZE = 100;   // 每个线程一次处理行数
+    uint32_t lineno = 0;
 
     if( !inFile )
         throw runtime_error( "Cannot open iteraction data file!" );
 
     // skip the title line
-    getline( inFile, line );
+    string title;
+    getline( inFile, title );
     if( !inFile )
         throw runtime_error( "Invalid interaction data format!" );
 
-    uint32_t lineCount = 0;
-    while( getline(inFile, line) ) {
-        ++lineCount;
-        // LOG_EVERY_N(INFO, 10000) << "reading interact " << lineCount << " record......";
+    auto processLine = []( string &line, uint32_t lineCount ) {
+        uint32_t userID, itemID, interactType;
+        unsigned long timestamp;
+        InteractionRecord_sptr pInterRec;
+        User_sptr pUser;
+        Item_sptr pItem;
+
         stringstream str(line);
         str >> userID >> itemID >> interactType >> timestamp;
         assert( interactType < N_INTERACTION_TYPE );
         if( !g_pUserDB->queryUser(userID, pUser) ) {
             LOG(INFO) << "load_interaction_data cannot find user: " << userID;
-            continue;
+            return;
         } // if
         if( !g_pItemDB->queryItem(itemID, pItem) ) {
             LOG(INFO) << "load_interaction_data cannot find item: " << itemID;
-            continue;
+            return;
         } // if
-        pInterRec = std::make_shared<InteractionRecord>
+        pInterRec = std::make_shared< InteractionRecord >
                            (pUser, pItem, interactType, timestamp);
+        boost::unique_lock< InteractArray > lock(g_InteractRecords);
         g_InteractRecords.push_back( pInterRec );
+        lock.unlock();
         pUser->addInteraction( pInterRec );
         pItem->addInteraction( pInterRec );
-    } // while
+    }; // end processLine
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( std::bind(load_file_thread_routine, 
+                                    std::ref(inFile), std::ref(fileMtx), 
+                                    BATCH_SIZE, std::ref(lineno), processLine) );
+    thrgroup.join_all();
 
     // sort users' interactions and items' interaction, by time later to earlier
     cout << "Sorting interations by time......" << endl;
     auto sortInteractions = []( const InteractionRecord_wptr &pLeft,
-                                    const InteractionRecord_wptr &pRight )
+                                    const InteractionRecord_wptr &pRight )->bool
     {
         auto lhs = pLeft.lock();
         auto rhs = pRight.lock();
@@ -440,8 +503,16 @@ void load_interaction_data( const char *filename )
 static
 void init()
 {
+    const uint32_t N_INTERACTION_RECORDS = 8800000;
+
     g_pUserDB.reset( new UserDB );
     g_pItemDB.reset( new ItemDB );
+
+    g_nMaxThread = boost::thread::hardware_concurrency();
+    if( !g_nMaxThread )
+        g_nMaxThread = 1;
+    
+    g_InteractRecords.reserve( N_INTERACTION_RECORDS );
 }
 
 
@@ -455,12 +526,10 @@ int main( int argc, char **argv )
         // test();
         init();
 
-        cout << "Loading users data and items data..." << endl;
-        std::thread t1(load_user_data, "users.csv");
-        std::thread t2(load_item_data, "items.csv");
-
-        t1.join();
-        t2.join();
+        cout << "Loading users data..." << endl;
+        load_user_data( "users.csv" );
+        cout << "Loading items data..." << endl;
+        load_item_data( "items.csv" );
 
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "interactions.csv" );
@@ -647,3 +716,104 @@ void test()
  * }
  */
 
+/*
+ * static
+ * void load_user_data( const char *filename )
+ * {
+ *     using namespace std;
+ * 
+ *     char errstr[128];
+ *     string line;
+ *     char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
+ *     User_sptr pUser;
+ *     ifstream inFile( filename, ios::in );
+ *     boost::mutex  fileMtx;
+ * 
+ *     if( !inFile )
+ *         throw runtime_error( "Cannot open user data file!" );
+ * 
+ *     // skip the title line
+ *     getline( inFile, line );
+ *     if( !inFile )
+ *         throw runtime_error( "Invalid user data format!" );
+ * 
+ *     uint32_t lineCount = 0;
+ *     while( getline(inFile, line) ) {
+ *         ++lineCount;
+ *         char *pLine = const_cast<char*>(line.c_str());
+ *         pUser.reset( new User );
+ *         // read ID, maybe empty line, so when read fail just skip
+ *         if( !(pField = strtok_r(pLine, "\t", &saveEnd1)) || !read_from_string(pField, pUser->ID()) )
+ *             continue;
+ *         // job roles
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_uint_set(pField, pUser->jobRoles()) ) {
+ *             sprintf(errstr, "error reading %u record's jobrole!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         // career level
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->careerLevel()) ) {
+ *             sprintf(errstr, "error reading %u record careerLevel!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->careerLevel() > 6) << pUser->careerLevel()
+ *                 << " is not a valid careerLevel value, record no: " << lineCount;
+ *         // discplineID
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->discplineID()) ) {
+ *             sprintf(errstr, "error reading %u record discplineID!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         // industryID
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->industryID()) ) {
+ *             sprintf(errstr, "error reading %u record industryID!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         // country
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->country()) ) {
+ *             sprintf(errstr, "error reading %u record country!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         // region
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->region()) ) {
+ *             sprintf(errstr, "error reading %u record region!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->region() > 16) << pUser->region()
+ *                 << " is not a valid region value, record no: " << lineCount;
+ *         // CV entry
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->numOfCvEntry()) ) {
+ *             sprintf(errstr, "error reading %u record numOfCvEntry!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->numOfCvEntry() > 3) << pUser->numOfCvEntry()
+ *                 << " is not a valid numOfCvEntry value, record no: " << lineCount;
+ *         // yearsOfExperience
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->yearsOfExperience()) ) {
+ *             sprintf(errstr, "error reading %u record yearsOfExperience!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->yearsOfExperience() > 7) << pUser->yearsOfExperience()
+ *                 << " is not a valid yearsOfExperience value, record no: " << lineCount;
+ *         // yearsOfCurrentJob
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->yearsOfCurrentJob()) ) {
+ *             sprintf(errstr, "error reading %u record yearsOfCurrentJob!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->yearsOfCurrentJob() > 7) << pUser->yearsOfCurrentJob()
+ *                 << " is not a valid yearsOfCurrentJob value, record no: " << lineCount;
+ *         // eduDegree
+ *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->eduDegree()) ) {
+ *             sprintf(errstr, "error reading %u record eduDegree!", lineCount);
+ *             LOG(WARNING) << errstr;
+ *         } // if
+ *         LOG_IF(WARNING, pUser->eduDegree() > 3) << pUser->eduDegree()
+ *                 << " is not a valid eduDegree value, record no: " << lineCount;
+ *         // eduFields, if eduDegree is 0, eduFields can be empty
+ *         if( (pField = strtok_r(NULL, "\t", &saveEnd1)) ) {
+ *             read_uint_set(pField, pUser->eduFields());
+ *         } // if
+ * 
+ *         // cout << *pUser << endl;
+ *         g_pUserDB->addUser( pUser );
+ *     } // while
+ * }
+ */

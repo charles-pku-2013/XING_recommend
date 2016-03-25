@@ -46,7 +46,10 @@ void Item::sortInteractions( const InteractionRecordCmpFunc &cmp )
 void UserDB::addUser( const User_sptr &pUser )
 {
     uint32_t id = pUser->ID();
-    m_UserDB[ id % HASH_SIZE ].insert( std::make_pair(id, pUser) );
+    // m_UserDB[ id % HASH_SIZE ].insert( std::make_pair(id, pUser) );
+    UserDBRecord& rec = m_UserDB[ id % HASH_SIZE ];
+    boost::unique_lock< UserDBRecord > lock(rec);
+    rec.insert( std::make_pair(id, pUser) );
 
     // test
     // char errstr[80];
@@ -56,15 +59,76 @@ void UserDB::addUser( const User_sptr &pUser )
         // LOG(WARNING) << errstr;
 }
 
+void UserDB::sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    const InteractionRecordCmpFunc &cmp )
+{
+    while (true) {
+        boost::unique_lock< boost::mutex > lock(mtx);
+        if( index >= HASH_SIZE )
+            return;
+
+        UserDBRecord &rec = m_UserDB[ index++ ];
+        lock.unlock();
+
+        for( auto it = rec.begin(); it != rec.end(); ++it )
+            it->second->sortInteractions( cmp );
+    } // while
+}
+
+void UserDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
+{
+    uint32_t index = 0;
+    boost::mutex mtx;
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( std::bind(&UserDB::sortInteractionsThreadFunc, this, 
+                                    std::ref(index), std::ref(mtx), std::ref(cmp)) );
+    thrgroup.join_all();
+}
+
+
 void ItemDB::addItem( const Item_sptr &pItem )
 {
     uint32_t id = pItem->ID();
     // m_ItemDB[ id % HASH_SIZE ].insert( std::make_pair(id, pItem) );
+    ItemDBRecord& rec = m_ItemDB[ id % HASH_SIZE ];
+    boost::unique_lock< ItemDBRecord >  lock(rec);
+    rec.insert( std::make_pair(id, pItem) );
     
     // test
-    char errstr[80];
-    sprintf( errstr, "Item %u already exist.", id );
-    auto ret = m_ItemDB[ id % HASH_SIZE ].insert( std::make_pair(id, pItem) );
-    if( !ret.second )
-        LOG(WARNING) << errstr;
+    // char errstr[80];
+    // sprintf( errstr, "Item %u already exist.", id );
+    // auto ret = m_ItemDB[ id % HASH_SIZE ].insert( std::make_pair(id, pItem) );
+    // if( !ret.second )
+        // LOG(WARNING) << errstr;
 }
+
+void ItemDB::sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    const InteractionRecordCmpFunc &cmp )
+{
+    while (true) {
+        boost::unique_lock< boost::mutex > lock(mtx);
+        if( index >= HASH_SIZE )
+            return;
+
+        ItemDBRecord &rec = m_ItemDB[ index++ ];
+        lock.unlock();
+
+        for( auto it = rec.begin(); it != rec.end(); ++it )
+            it->second->sortInteractions( cmp );
+    } // while
+}
+
+void ItemDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
+{
+    uint32_t index = 0;
+    boost::mutex mtx;
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( std::bind(&ItemDB::sortInteractionsThreadFunc, this, 
+                                    std::ref(index), std::ref(mtx), std::ref(cmp)) );
+    thrgroup.join_all();
+}
+
