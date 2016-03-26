@@ -7,22 +7,24 @@ FAST_ALLOCATOR( User )  User::s_allocator;
 FAST_ALLOCATOR( Item )  Item::s_allocator;
 
 
-const char *CAREER_LEVEL_TEXT[] = {
-    "Unknown",
-    "Student/Intern",
-    "Entry Level",
-    "Professional/Experienced",
-    "Manager",
-    "Executive",
-    "Senior Executive"
-};
-
-const char *EDU_DEGREE_TEXT[] = {
-    "Unknown",
-    "Bachelor",
-    "Master",
-    "PhD"
-};
+/*
+ * const char *CAREER_LEVEL_TEXT[] = {
+ *     "Unknown",
+ *     "Student/Intern",
+ *     "Entry Level",
+ *     "Professional/Experienced",
+ *     "Manager",
+ *     "Executive",
+ *     "Senior Executive"
+ * };
+ * 
+ * const char *EDU_DEGREE_TEXT[] = {
+ *     "Unknown",
+ *     "Bachelor",
+ *     "Master",
+ *     "PhD"
+ * };
+ */
 
 uint32_t InteractionRecord::userID() const
 { return user().lock()->ID(); }
@@ -46,7 +48,6 @@ void Item::sortInteractions( const InteractionRecordCmpFunc &cmp )
 void UserDB::addUser( const User_sptr &pUser )
 {
     uint32_t id = pUser->ID();
-    // m_UserDB[ id % HASH_SIZE ].insert( std::make_pair(id, pUser) );
     UserDBRecord& rec = m_UserDB[ id % HASH_SIZE ];
     boost::unique_lock< UserDBRecord > lock(rec);
     rec.insert( std::make_pair(id, pUser) );
@@ -77,8 +78,8 @@ void UserDB::sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
 
 void UserDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
 {
-    uint32_t index = 0;
-    boost::mutex mtx;
+    uint32_t index = 0;   // [0, HASH_SIZE)
+    boost::mutex mtx;     // for accessing index
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
@@ -91,7 +92,6 @@ void UserDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
 void ItemDB::addItem( const Item_sptr &pItem )
 {
     uint32_t id = pItem->ID();
-    // m_ItemDB[ id % HASH_SIZE ].insert( std::make_pair(id, pItem) );
     ItemDBRecord& rec = m_ItemDB[ id % HASH_SIZE ];
     boost::unique_lock< ItemDBRecord >  lock(rec);
     rec.insert( std::make_pair(id, pItem) );
@@ -122,8 +122,8 @@ void ItemDB::sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
 
 void ItemDB::sortInteractions( const InteractionRecordCmpFunc &cmp )
 {
-    uint32_t index = 0;
-    boost::mutex mtx;
+    uint32_t index = 0;   // [0, HASH_SIZE)
+    boost::mutex mtx;     // for accessing index
 
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )

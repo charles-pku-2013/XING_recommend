@@ -176,11 +176,18 @@ bool read_uint_set( char *str, UIntSet &uintSet )
     return true;
 }
 
-//!! processLine 不能用引用传入!!
+/*
+ * processLine 或者用值传入，或者用 const ref 传入，
+ * 但不可以用普通引用传入。
+ */
+// static
+// void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
+                // const uint32_t BATCH_SIZE, uint32_t &lineno,
+                // std::function< void(std::string&, uint32_t) > processLine )
 static
 void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
                 const uint32_t BATCH_SIZE, uint32_t &lineno,
-                std::function< void(std::string&, uint32_t) > processLine )
+                const std::function< void(std::string&, uint32_t) > &processLine )
 {
     using namespace std;
 
@@ -201,7 +208,7 @@ void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
             processLine( lines[j], lineIDs[j] );
         } // for
 
-        if( i < BATCH_SIZE )
+        if( i < BATCH_SIZE )   // getline fail, eof or filestream fail
             break;   // jump out while true
     } // while
 
@@ -215,7 +222,7 @@ void load_user_data( const char *filename )
 
     ifstream inFile( filename, ios::in );
     boost::mutex  fileMtx;
-    const uint32_t  BATCH_SIZE = 20;   // 每个线程一次处理行数
+    const uint32_t  BATCH_SIZE = 100;   // 每个线程一次处理行数
     uint32_t lineno = 0;
 
     if( !inFile )
@@ -311,7 +318,10 @@ void load_user_data( const char *filename )
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
         thrgroup.create_thread( std::bind(load_file_thread_routine,
                                     std::ref(inFile), std::ref(fileMtx),
-                                    BATCH_SIZE, std::ref(lineno), processLine) );
+                                    BATCH_SIZE, std::ref(lineno), std::ref(processLine)) );
+        // thrgroup.create_thread( std::bind(load_file_thread_routine,
+                                    // std::ref(inFile), std::ref(fileMtx),
+                                    // BATCH_SIZE, std::ref(lineno), processLine) );
     thrgroup.join_all();
 
     return;
@@ -324,7 +334,7 @@ void load_item_data( const char *filename )
 
     ifstream inFile( filename, ios::in );
     boost::mutex  fileMtx;
-    const uint32_t  BATCH_SIZE = 20;   // 每个线程一次处理行数
+    const uint32_t  BATCH_SIZE = 100;   // 每个线程一次处理行数
     uint32_t lineno = 0;
 
     if( !inFile )
@@ -437,7 +447,7 @@ void load_interaction_data( const char *filename )
 
     ifstream inFile( filename, ios::in );
     boost::mutex  fileMtx;
-    const uint32_t  BATCH_SIZE = 100;   // 每个线程一次处理行数
+    const uint32_t  BATCH_SIZE = 500;   // 每个线程一次处理行数
     uint32_t lineno = 0;
 
     if( !inFile )
@@ -485,13 +495,7 @@ void load_interaction_data( const char *filename )
     cout << "Sorting interations by time......" << endl;
     auto sortInteractions = []( const InteractionRecord_wptr &pLeft,
                                     const InteractionRecord_wptr &pRight )->bool
-    {
-        auto lhs = pLeft.lock();
-        auto rhs = pRight.lock();
-        if( !lhs || !rhs )
-            throw runtime_error( "Sort interaction: object may has been destroyed!" );
-        return lhs->time() > rhs->time();
-    };
+    { return pLeft.lock()->time() > pRight.lock()->time(); };
 
     g_pUserDB->sortInteractions( sortInteractions );
     g_pItemDB->sortInteractions( sortInteractions );
@@ -501,8 +505,6 @@ void load_interaction_data( const char *filename )
 static
 void init()
 {
-    const uint32_t N_INTERACTION_RECORDS = 8800000;
-
     g_pUserDB.reset( new UserDB );
     g_pItemDB.reset( new ItemDB );
     g_InteractStore.reset( new InteractionStore(1000) );
@@ -526,7 +528,7 @@ int main( int argc, char **argv )
         cout << "Loading users data..." << endl;
         load_user_data( "users.csv" );
         cout << "Loading items data..." << endl;
-        load_item_data( "items.csv" );
+        load_item_data( "items_corrected.csv" );
 
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "interactions.csv" );

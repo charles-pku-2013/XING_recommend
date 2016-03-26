@@ -55,7 +55,7 @@ enum CareerLevel {
     N_CAREER_LEVEL
 };
 
-extern const char *CAREER_LEVEL_TEXT[];
+// extern const char *CAREER_LEVEL_TEXT[];
 
 enum INTERACTION_TYPE {
     INVALID,
@@ -66,7 +66,7 @@ enum INTERACTION_TYPE {
     N_INTERACTION_TYPE
 };
 
-extern const char *EDU_DEGREE_TEXT[];
+// extern const char *EDU_DEGREE_TEXT[];
 
 
 class InteractionRecord {
@@ -131,7 +131,7 @@ public:
 
     struct InteractArray
         : std::vector< InteractionRecord_sptr, POOL_ALLOCATOR(InteractionRecord_sptr) >
-          , boost::basic_lockable_adapter< boost::mutex > {};
+        , boost::basic_lockable_adapter< boost::mutex > {};
 
     typedef InteractArray       InteractMatrix[ HASH_SIZE ];
 
@@ -166,8 +166,6 @@ private:
 
 
 // below used by User and Item
-// typedef std::vector< InteractionRecord_wptr,
-            // POOL_ALLOCATOR(InteractionRecord_wptr) >      InteractionVector;
 struct InteractionVector
         : std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) >
         , boost::basic_lockable_adapter< boost::mutex > {};
@@ -287,7 +285,7 @@ private:
     uint32_t                m_nCareerLevel;
     uint32_t                m_DiscplineID;
     uint32_t                m_IndustryID;
-    String             m_strCountry;
+    String                  m_strCountry;
     uint32_t                m_nRegion;
     uint32_t                m_nExperienceEntries;
     uint32_t                m_nExperienceYears;
@@ -443,7 +441,7 @@ private:
 
 class UserDB {
 public:
-    // total 15w users
+    // total 150w users
     static const uint32_t HASH_SIZE = 1000;
 
     typedef std::pair< const uint32_t, User_sptr > _RecordType;

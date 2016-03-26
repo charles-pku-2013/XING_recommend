@@ -1,4 +1,2 @@
-test:
-	c++ -o test main.cpp common.cpp -std=c++11 -I/opt/local/include -L/opt/local/lib -pthread -lboost_system -lboost_thread -lglog -g -O3
-clean:
-	rm -rf test test.*
+all:
+	c++ -o test.bin main.cpp common.cpp -std=c++11 -I/opt/local/include -L/opt/local/lib -pthread -lboost_system -lboost_thread -lglog -g -O3
