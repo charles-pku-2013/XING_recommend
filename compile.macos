@@ -1,0 +1,28 @@
+#! /bin/bash
+
+target="test.bin"
+targetDir="/Volumes/DATA/Documents/2016/Data/"
+
+if [ ! -e ${targetDir} ]; then
+    echo "Specified directory ${targetDir} doesn't exist!"
+    exit 1
+fi
+
+run_clean()
+{
+    # echo ${target}.*
+    (cd ${targetDir} && rm -rf ${target} ${target}.*)
+}
+
+if [ "$1" == "clean" ]; then
+    run_clean
+    exit 0
+fi
+
+make -f Makefile.MacOS
+
+if [ "$?" == "0" ]; then
+    mv ${target} ${target}.* $targetDir
+else
+    echo "compile error!"
+fi

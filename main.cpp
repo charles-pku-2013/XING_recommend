@@ -9,13 +9,16 @@
 std::unique_ptr< UserDB >        g_pUserDB;
 std::unique_ptr< ItemDB >        g_pItemDB;
 std::unique_ptr< InteractionStore > g_InteractStore;
+uint32_t                         g_nMaxUserID = 0;
+uint32_t                         g_nMaxItemID = 0;
 uint32_t                         g_nMaxThread = 1;
 
 // for test
 static void handle_command();
 static void print_data_info();
-void test();
-void test1();
+static void gen_small_dataset( uint32_t nUsers, uint32_t nItems );
+static void test();
+static void test1();
 
 namespace std {
     ostream& operator << ( ostream &os, const User &user )
@@ -180,10 +183,6 @@ bool read_uint_set( char *str, UIntSet &uintSet )
  * processLine 或者用值传入，或者用 const ref 传入，
  * 但不可以用普通引用传入。
  */
-// static
-// void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
-                // const uint32_t BATCH_SIZE, uint32_t &lineno,
-                // std::function< void(std::string&, uint32_t) > processLine )
 static
 void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
                 const uint32_t BATCH_SIZE, uint32_t &lineno,
@@ -312,6 +311,7 @@ void load_user_data( const char *filename )
 
         // cout << *pUser << endl;
         g_pUserDB->addUser( pUser );
+        g_nMaxUserID = pUser->ID() > g_nMaxUserID ? pUser->ID() : g_nMaxUserID;
     }; // end lambda
 
     boost::thread_group thrgroup;
@@ -428,6 +428,7 @@ void load_item_data( const char *filename )
 
         // cout << *pItem << endl;
         g_pItemDB->addItem( pItem );
+        g_nMaxItemID = pItem->ID() > g_nMaxItemID ? pItem->ID() : g_nMaxItemID;
     }; // end processLine
 
     boost::thread_group thrgroup;
@@ -469,12 +470,18 @@ void load_interaction_data( const char *filename )
         stringstream str(line);
         str >> userID >> itemID >> interactType >> timestamp;
         assert( interactType < N_INTERACTION_TYPE );
-        if( !g_pUserDB->queryUser(userID, pUser) ) {
+        if ( !g_pUserDB->queryUser(userID, pUser) ) {
             LOG(INFO) << "load_interaction_data cannot find user: " << userID;
             return;
         } // if
-        if( !g_pItemDB->queryItem(itemID, pItem) ) {
+        if ( !g_pItemDB->queryItem(itemID, pItem) ) {
             LOG(INFO) << "load_interaction_data cannot find item: " << itemID;
+            return;
+        } // if
+        if ( (time_t)timestamp < pItem->createTime() ) {
+            LOG(ERROR) << "Wrong interaction record " << lineCount << 
+                    ": " << timestamp << " is earlier than item " << pItem->ID() 
+                   << " created time " << pItem->createTime(); 
             return;
         } // if
         pInterRec = std::make_shared< InteractionRecord >
@@ -509,11 +516,13 @@ void init()
     g_pItemDB.reset( new ItemDB );
     g_InteractStore.reset( new InteractionStore(1000) );
 
+    g_nMaxUserID = 0;
+    g_nMaxItemID = 0;
+
     g_nMaxThread = boost::thread::hardware_concurrency();
     if( !g_nMaxThread )
         g_nMaxThread = 1;
 }
-
 
 int main( int argc, char **argv )
 {
@@ -533,6 +542,7 @@ int main( int argc, char **argv )
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "interactions.csv" );
         print_data_info();
+        // gen_small_dataset( 80000, 100000 );
         handle_command();
 
     } catch ( const exception &ex ) {
@@ -540,6 +550,7 @@ int main( int argc, char **argv )
         exit(-1);
     } // try
 
+    cout << "Main program terminating......" << endl;
     return 0;
 }
 
@@ -607,11 +618,108 @@ void print_data_info()
     cout << "n_users: " << g_pUserDB->size() << endl;
     cout << "n_items: " << g_pItemDB->size() << endl;
     cout << "n_interactions: " << g_InteractStore->size() << endl;
+
+    // for test
+    cout << "g_nMaxUserID = " << g_nMaxUserID << endl;
+    cout << "g_nMaxItemID = " << g_nMaxItemID << endl;
+}
+
+static
+void gen_small_dataset( uint32_t nUsers, uint32_t nItems = 0 )
+{
+    using namespace std;
+
+    const uint32_t MAXUID = g_nMaxUserID + 1;
+    const uint32_t MAXIID = g_nMaxItemID + 1; 
+    UIntSet users, items;
+    User_sptr pUser;
+
+    cout << "Generating small dataset......" << endl;
+
+    // 对 interaction 排序，按时间由近及远
+    auto cmpInteractByTime = []( const InteractionRecord_wptr pLeft, 
+                                const InteractionRecord_wptr pRight )->bool
+    { return pLeft.lock()->time() > pRight.lock()->time(); };
+
+    std::multimap< uint32_t, InteractionRecord_wptr > interactions;
+
+    auto createDataFile = []( const char *inFileName, const char *outFileName, const UIntSet &set ) {
+        uint32_t id;
+        string line;
+
+        ifstream inFile( inFileName, ios::in );
+        ofstream outFile( outFileName, ios::out );
+
+        while (getline(inFile, line)) {
+            if (sscanf( line.c_str(), "%u", &id ) != 1)
+                continue;
+            if (set.find(id) != set.end())
+                outFile << line << endl;
+        } // while
+    };
+
+    auto createInteractFile = [&]( const char *filename ) {
+        // std::vector< InteractionRecord_wptr > arr( interactions.begin(), interactions.end() );
+        std::vector< InteractionRecord_wptr > arr;
+        arr.reserve( interactions.size() );
+        for( const auto &v : interactions )
+            arr.push_back( v.second );
+
+        std::sort( arr.begin(), arr.end(), cmpInteractByTime );
+
+        ofstream outFile( filename, ios::out );
+        outFile << "user_id item_id\tinteraction_type\tcreated_at" << endl;
+
+        for( const auto &v : arr ) {
+            auto sp = v.lock();
+            outFile << sp->user().lock()->ID() << "\t" << sp->item().lock()->ID() << "\t"
+                << sp->type() << "\t" << sp->time() << endl;
+        } // for
+    };
+
+    // 默认 item 小数据集是选取的 users 交互过的所有item
+    auto dumpInteractedItemIDs = [&] {
+        InteractionTable &iTable = pUser->interactionTable();        
+        for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i ) {
+            for( uint32_t j = 0; j < iTable[i].size(); ++j ) {
+                uint32_t itemID = iTable[i][j].lock()->item().lock()->ID();
+                items.insert( itemID );
+                interactions.insert( std::make_pair( itemID, iTable[i][j] ) );
+            } // for j
+        } // for i
+    };
+
+    // 随机选取指定用户数，至少有一个 interaction 记录
+    srand( time(0) );
+    while( users.size() < nUsers ) {
+        if( g_pUserDB->queryUser(rand() % MAXUID, pUser) && pUser->nInteractions() ) {
+            users.insert( pUser->ID() );
+            dumpInteractedItemIDs();
+        } // if
+    } // while
+
+    createDataFile( "users.csv", "users_small.csv", users );
+    createDataFile( "items.csv", "items_small1.csv", items );
+    createInteractFile( "interactions_small1.csv" );
+
+    // 按照上面的方法生成的 items 小数据集可能比需要的多，随机删除，直到指定数目。
+    if( nItems ) {
+        while( items.size() > nItems ) {
+            uint32_t id = rand() % MAXIID;
+            if ( items.erase( id ) != 0 )
+                interactions.erase(id);
+        } // while
+        createDataFile( "items.csv", "items_small2.csv", items );
+        createInteractFile( "interactions_small2.csv" );
+    } // if
+
+    exit(0);
 }
 
 
 
 
+static
 void test1()
 {
     using namespace std;
@@ -629,6 +737,7 @@ void test1()
 }
 
 
+static
 void test()
 {
     using namespace std;
@@ -667,152 +776,7 @@ void test()
     exit(0);
 }
 
-/*
- * void load_interaction_data( const char *filename )
- * {
- *     using namespace std;
- *
- *     char errstr[128];
- *     string line;
- *     uint32_t userID, itemID, interactType;
- *     unsigned long timestamp;
- *     ifstream inFile( filename, ios::in );
- *
- *     if( !inFile )
- *         throw runtime_error( "Cannot open iteraction data file!" );
- *
- *     // skip the title line
- *     getline( inFile, line );
- *     if( !inFile )
- *         throw runtime_error( "Invalid interaction data format!" );
- *
- *     uint32_t lineCount = 0;
- *     while( getline(inFile, line) ) {
- *         ++lineCount;
- *         stringstream str(line);
- *         str >> userID >> itemID >> interactType >> timestamp;
- *         if( str.fail() || str.bad() ) {
- *             LOG(WARNING) << "read interaction data " << lineCount << " line fail.";
- *             continue;
- *         } // if
- *
- *         User_wptr wpUser = g_pUserDB->queryUser( userID );
- *         User_sptr spUser = wpUser.lock();
- *         if( !spUser ) {
- *             LOG(WARNING) << "No info about user " << userID << " in user database.";
- *             continue;
- *         } // if
- *         Item_wptr wpItem = g_pItemDB->queryItem( itemID );
- *         Item_sptr spItem = wpItem.lock();
- *         if( !spItem ) {
- *             LOG(WARNING) << "No info about item " << itemID << " in item database.";
- *             continue;
- *         } // if
- *
- *         spUser->addInteractItem( wpItem, interactType, (time_t)timestamp );
- *         spItem->addInteractUser( wpUser, interactType, (time_t)timestamp );
- *     } // while
- * }
- */
 
-/*
- * static
- * void load_user_data( const char *filename )
- * {
- *     using namespace std;
- *
- *     char errstr[128];
- *     string line;
- *     char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
- *     User_sptr pUser;
- *     ifstream inFile( filename, ios::in );
- *     boost::mutex  fileMtx;
- *
- *     if( !inFile )
- *         throw runtime_error( "Cannot open user data file!" );
- *
- *     // skip the title line
- *     getline( inFile, line );
- *     if( !inFile )
- *         throw runtime_error( "Invalid user data format!" );
- *
- *     uint32_t lineCount = 0;
- *     while( getline(inFile, line) ) {
- *         ++lineCount;
- *         char *pLine = const_cast<char*>(line.c_str());
- *         pUser.reset( new User );
- *         // read ID, maybe empty line, so when read fail just skip
- *         if( !(pField = strtok_r(pLine, "\t", &saveEnd1)) || !read_from_string(pField, pUser->ID()) )
- *             continue;
- *         // job roles
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_uint_set(pField, pUser->jobRoles()) ) {
- *             sprintf(errstr, "error reading %u record's jobrole!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         // career level
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->careerLevel()) ) {
- *             sprintf(errstr, "error reading %u record careerLevel!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->careerLevel() > 6) << pUser->careerLevel()
- *                 << " is not a valid careerLevel value, record no: " << lineCount;
- *         // discplineID
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->discplineID()) ) {
- *             sprintf(errstr, "error reading %u record discplineID!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         // industryID
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->industryID()) ) {
- *             sprintf(errstr, "error reading %u record industryID!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         // country
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->country()) ) {
- *             sprintf(errstr, "error reading %u record country!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         // region
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->region()) ) {
- *             sprintf(errstr, "error reading %u record region!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->region() > 16) << pUser->region()
- *                 << " is not a valid region value, record no: " << lineCount;
- *         // CV entry
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->numOfCvEntry()) ) {
- *             sprintf(errstr, "error reading %u record numOfCvEntry!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->numOfCvEntry() > 3) << pUser->numOfCvEntry()
- *                 << " is not a valid numOfCvEntry value, record no: " << lineCount;
- *         // yearsOfExperience
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->yearsOfExperience()) ) {
- *             sprintf(errstr, "error reading %u record yearsOfExperience!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->yearsOfExperience() > 7) << pUser->yearsOfExperience()
- *                 << " is not a valid yearsOfExperience value, record no: " << lineCount;
- *         // yearsOfCurrentJob
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->yearsOfCurrentJob()) ) {
- *             sprintf(errstr, "error reading %u record yearsOfCurrentJob!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->yearsOfCurrentJob() > 7) << pUser->yearsOfCurrentJob()
- *                 << " is not a valid yearsOfCurrentJob value, record no: " << lineCount;
- *         // eduDegree
- *         if( !(pField = strtok_r(NULL, "\t", &saveEnd1)) || !read_from_string(pField, pUser->eduDegree()) ) {
- *             sprintf(errstr, "error reading %u record eduDegree!", lineCount);
- *             LOG(WARNING) << errstr;
- *         } // if
- *         LOG_IF(WARNING, pUser->eduDegree() > 3) << pUser->eduDegree()
- *                 << " is not a valid eduDegree value, record no: " << lineCount;
- *         // eduFields, if eduDegree is 0, eduFields can be empty
- *         if( (pField = strtok_r(NULL, "\t", &saveEnd1)) ) {
- *             read_uint_set(pField, pUser->eduFields());
- *         } // if
- *
- *         // cout << *pUser << endl;
- *         g_pUserDB->addUser( pUser );
- *     } // while
- * }
- */
+
+
+

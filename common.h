@@ -13,6 +13,8 @@
 #include <iterator>
 #include <algorithm>
 #include <functional>
+#include <ctime>
+#include <cmath>
 #include <boost/pool/pool_alloc.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/lockable_adapter.hpp>
@@ -271,6 +273,15 @@ public:
     { return m_InteractionTable[ type_index ]; }
     const InteractionVector& interactionVector( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
+    std::size_t nInteractions( uint32_t type_index = 0 ) const
+    {
+        if( type_index )
+            return interactionVector( type_index ).size();
+        std::size_t count = 0;
+        for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
+            count += interactionTable()[i].size();
+        return count;
+    }
     void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
     static void* operator new( std::size_t sz )
@@ -406,6 +417,15 @@ public:
     { return m_InteractionTable[ type_index ]; }
     const InteractionVector& interactionVector( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
+    std::size_t nInteractions( uint32_t type_index = 0 ) const
+    {
+        if( type_index )
+            return interactionVector( type_index ).size();
+        std::size_t count = 0;
+        for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
+            count += interactionTable()[i].size();
+        return count;
+    }
     void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
     static void* operator new( std::size_t sz )
@@ -547,6 +567,8 @@ private:
 extern std::unique_ptr< UserDB >        g_pUserDB;
 extern std::unique_ptr< ItemDB >        g_pItemDB;
 extern std::unique_ptr< InteractionStore > g_InteractStore;
+extern uint32_t                         g_nMaxUserID;
+extern uint32_t                         g_nMaxItemID;
 extern uint32_t                         g_nMaxThread;
 
 

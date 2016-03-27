@@ -3,6 +3,11 @@
 target="test.bin"
 targetDir="/Volumes/DATA/Documents/2016/Data/"
 
+if [ ! -e ${targetDir} ]; then
+    echo "Specified directory ${targetDir} doesn't exist!"
+    exit 1
+fi
+
 run_clean()
 {
     # echo ${target}.*
@@ -14,7 +19,7 @@ if [ "$1" == "clean" ]; then
     exit 0
 fi
 
-make -f Makefile.MacOS
+make -f Makefile.Linux
 
 if [ "$?" == "0" ]; then
     mv ${target} ${target}.* $targetDir
