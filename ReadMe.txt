@@ -31,6 +31,7 @@ sudo apt-get install libboost-dev libgoogle-glog-dev
 
 
 运行测试:
+NOTE!!! 运行之前请先用 correct_items 程序更正 items.csv 中属性文本缺失问题, 并确保 items.csv 文件是更正过后的，方法参考 correct_items.cpp 内说明。
 本程序目前实现将数据导入内存，并建立了便于快速查找的数据结构。并实现了一个简单的交互查询系统(见main.cpp:handle_command), 目前支持命令：
 u $user_id      打印用户信息和交互历史
 i $item_id      打印物品信息和交互历史

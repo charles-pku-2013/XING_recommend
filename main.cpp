@@ -537,7 +537,7 @@ int main( int argc, char **argv )
         cout << "Loading users data..." << endl;
         load_user_data( "users.csv" );
         cout << "Loading items data..." << endl;
-        load_item_data( "items_corrected.csv" );
+        load_item_data( "items.csv" );
 
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "interactions.csv" );
@@ -649,6 +649,10 @@ void gen_small_dataset( uint32_t nUsers, uint32_t nItems = 0 )
 
         ifstream inFile( inFileName, ios::in );
         ofstream outFile( outFileName, ios::out );
+        
+        // copy the title line
+        getline( inFile, line );
+        outFile << line << endl;
 
         while (getline(inFile, line)) {
             if (sscanf( line.c_str(), "%u", &id ) != 1)
@@ -668,7 +672,7 @@ void gen_small_dataset( uint32_t nUsers, uint32_t nItems = 0 )
         std::sort( arr.begin(), arr.end(), cmpInteractByTime );
 
         ofstream outFile( filename, ios::out );
-        outFile << "user_id item_id\tinteraction_type\tcreated_at" << endl;
+        outFile << "user_id\titem_id\tinteraction_type\tcreated_at" << endl;
 
         for( const auto &v : arr ) {
             auto sp = v.lock();
@@ -704,16 +708,20 @@ void gen_small_dataset( uint32_t nUsers, uint32_t nItems = 0 )
 
     // 按照上面的方法生成的 items 小数据集可能比需要的多，随机删除，直到指定数目。
     if( nItems ) {
-        while( items.size() > nItems ) {
-            uint32_t id = rand() % MAXIID;
-            if ( items.erase( id ) != 0 )
-                interactions.erase(id);
+        std::vector<uint32_t> arr( items.begin(), items.end() );
+        while( arr.size() > nItems ) {
+            uint32_t index = rand() % arr.size();
+            std::vector<uint32_t>::iterator it = arr.begin() + index;
+            interactions.erase( *it );
+            arr.erase( it );
         } // while
+        std::set<uint32_t> tmp(arr.begin(), arr.end());
+        items.swap( tmp );
         createDataFile( "items.csv", "items_small2.csv", items );
         createInteractFile( "interactions_small2.csv" );
     } // if
 
-    exit(0);
+    return;
 }
 
 
