@@ -171,12 +171,14 @@ bool read_uint_set( char *str, UIntSet &uintSet )
 {
     uint32_t id;
     char *saveEnd2 = NULL;
+    bool ret = true;
     for( char *p = strtok_r(str, ",", &saveEnd2); p; p = strtok_r(NULL, ",", &saveEnd2) ) {
-        read_from_string(p, id);
-        if( id )
+        if ( read_from_string(p, id) )
             uintSet.insert( id );
+        else
+            ret = false;
     } // for
-    return true;
+    return ret;
 }
 
 /*
