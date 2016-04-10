@@ -1,2 +1,2 @@
 all:
-	c++ -o test.bin main.cpp common.cpp -std=c++11 -pthread -lboost_system -lboost_thread -lglog -O3 -g
+	c++ -o test.bin main.cpp common.cpp recommend_algorithm.cpp -std=c++11 -pthread -lboost_system -lboost_thread -lglog -O3 -g

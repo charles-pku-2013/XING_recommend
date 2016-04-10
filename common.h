@@ -59,7 +59,7 @@ enum CareerLevel {
 
 // extern const char *CAREER_LEVEL_TEXT[];
 
-enum INTERACTION_TYPE {
+enum InteractionType {
     INVALID,
     CLICK,
     BOOKMARK,
@@ -70,6 +70,18 @@ enum INTERACTION_TYPE {
 
 // extern const char *EDU_DEGREE_TEXT[];
 
+struct ItemSetCmp {
+    bool operator() (const Item_sptr &lhs, 
+                     const Item_sptr &rhs) const;
+};
+
+struct UserSetCmp {
+    bool operator() (const User_sptr &lhs, 
+                     const User_sptr &rhs) const;
+};
+
+typedef std::set<Item_sptr, ItemSetCmp, FAST_ALLOCATOR(Item_sptr)>   ItemSet;
+typedef std::set<User_sptr, UserSetCmp, FAST_ALLOCATOR(User_sptr)>   UserSet;
 
 class InteractionRecord {
 public:
@@ -79,16 +91,16 @@ public:
         : m_pUser(pUser), m_pItem(pItem), m_nType(type), m_tTime(ts)
     {}
 
-    User_wptr user()
-    { return m_pUser; }
-    User_cwptr user() const
-    { return m_pUser; }
+    User_sptr user()
+    { return User_sptr(m_pUser); }
+    User_csptr user() const
+    { return User_csptr(m_pUser); }
     uint32_t userID() const;
 
-    Item_wptr item()
-    { return m_pItem; }
-    Item_cwptr item() const
-    { return m_pItem; }
+    Item_sptr item()
+    { return Item_sptr(m_pItem); }
+    Item_csptr item() const
+    { return Item_csptr(m_pItem); }
     uint32_t itemID() const;
 
     uint32_t& type()
@@ -171,7 +183,12 @@ private:
 struct InteractionVector
         : std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) >
         , boost::basic_lockable_adapter< boost::mutex > {};
-typedef InteractionVector    InteractionTable[ N_INTERACTION_TYPE ];
+// typedef std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) > InteractionVector;
+typedef std::pair< uint32_t, InteractionVector > _InteractionMapValue;
+// InteractionMap {key=user/item id : value=interactionRecord ptr array}
+struct InteractionMap : std::map< uint32_t, InteractionVector, std::less<uint32_t>, FAST_ALLOCATOR(_InteractionMapValue) >
+                      , boost::basic_lockable_adapter< boost::mutex > {};
+typedef InteractionMap    InteractionTable[ N_INTERACTION_TYPE ];
 
 // redefine the basic STL containers, replace their allocators
 typedef std::set< uint32_t, std::less<uint32_t>, FAST_ALLOCATOR(uint32_t) >  UIntSet;
@@ -258,31 +275,17 @@ public:
     void addEduFields( uint32_t id )
     { m_nsetEduFields.insert(id); }
 
-    void addInteraction( const InteractionRecord_sptr &p )
-    {
-        InteractionVector& vec = m_InteractionTable[ p->type() ];
-        boost::unique_lock< InteractionVector > lock(vec);
-        vec.push_back(p);
-    }
-
+    void addInteraction( const InteractionRecord_sptr &p );
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
     { return m_InteractionTable; }
-    InteractionVector& interactionVector( uint32_t type_index )
+    InteractionMap& interactionMap( uint32_t type_index )
     { return m_InteractionTable[ type_index ]; }
-    const InteractionVector& interactionVector( uint32_t type_index ) const
+    const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
-    std::size_t nInteractions( uint32_t type_index = 0 ) const
-    {
-        if( type_index )
-            return interactionVector( type_index ).size();
-        std::size_t count = 0;
-        for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
-            count += interactionTable()[i].size();
-        return count;
-    }
-    void sortInteractions( const InteractionRecordCmpFunc &cmp );
+
+    std::size_t interestedItems( ItemSet &iSet );
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
@@ -402,31 +405,17 @@ public:
     void setActive( bool status = true )
     { m_bActive = status; }
 
-    void addInteraction( const InteractionRecord_sptr &p )
-    {
-        InteractionVector& vec = m_InteractionTable[ p->type() ];
-        boost::unique_lock< InteractionVector > lock(vec);
-        vec.push_back(p);
-    }
-
+    void addInteraction( const InteractionRecord_sptr &p );
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
     { return m_InteractionTable; }
-    InteractionVector& interactionVector( uint32_t type_index )
+    InteractionMap& interactionMap( uint32_t type_index )
     { return m_InteractionTable[ type_index ]; }
-    const InteractionVector& interactionVector( uint32_t type_index ) const
+    const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
-    std::size_t nInteractions( uint32_t type_index = 0 ) const
-    {
-        if( type_index )
-            return interactionVector( type_index ).size();
-        std::size_t count = 0;
-        for( uint32_t i = 1; i < N_INTERACTION_TYPE; ++i )
-            count += interactionTable()[i].size();
-        return count;
-    }
-    void sortInteractions( const InteractionRecordCmpFunc &cmp );
+
+    std::size_t interestedByUsers( UserSet &uSet );
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
@@ -465,8 +454,6 @@ public:
     static const uint32_t HASH_SIZE = 1000;
 
     typedef std::pair< const uint32_t, User_sptr > _RecordType;
-    // typedef std::map< uint32_t, User_sptr, std::less<uint32_t>,
-                   // FAST_ALLOCATOR(_RecordType) >   UserDBRecord;
 
     struct UserDBRecord
             : std::map< uint32_t, User_sptr, std::less<uint32_t>, FAST_ALLOCATOR(_RecordType) >
@@ -502,11 +489,11 @@ public:
         return totalSize;
     }
 
-    void sortInteractions( const InteractionRecordCmpFunc &cmp );
+    // void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
-    void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
-                                    const InteractionRecordCmpFunc &cmp );
+    // void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    // const InteractionRecordCmpFunc &cmp );
 
     UserDBStorage       m_UserDB;
 };
@@ -517,8 +504,6 @@ public:
     // total 1358098 items
     static const uint32_t       HASH_SIZE = 1000;
     typedef std::pair< uint32_t, Item_sptr >  _RecordType;
-    // typedef std::map< uint32_t, Item_sptr, std::less<uint32_t>,
-               // FAST_ALLOCATOR(_RecordType) >   ItemDBRecord;
 
     struct ItemDBRecord
             : std::map< uint32_t, Item_sptr, std::less<uint32_t>, FAST_ALLOCATOR(_RecordType) >
@@ -554,11 +539,11 @@ public:
         return totalSize;
     }
 
-    void sortInteractions( const InteractionRecordCmpFunc &cmp );
+    // void sortInteractions( const InteractionRecordCmpFunc &cmp );
 
 private:
-    void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
-                                    const InteractionRecordCmpFunc &cmp );
+    // void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
+                                    // const InteractionRecordCmpFunc &cmp );
 
     ItemDBStorage       m_ItemDB;
 };
@@ -575,27 +560,31 @@ extern uint32_t                         g_nMaxThread;
 template < typename T >
 bool read_from_string( const char *s, T &value )
 {
-    if( strcmp(s, "NULL") == 0 || strcmp(s, "null") == 0 ) {
+    if ( strcmp(s, "NULL") == 0 || strcmp(s, "null") == 0 ) {
         value = T();
         return true;
     } // if
     std::stringstream str(s);
     str >> value;
     bool ret = (str.good() || str.eof());
-    if( !ret )
+    if ( !ret )
         value = T();
     return ret;
 }
 
 
 // for test
-template < typename T >
-void print_container( std::ostream &os, const T &c )
-{
-    typedef typename T::value_type value_type;
-    std::copy( c.begin(), c.end(), std::ostream_iterator<value_type>(os, " ") );
-    os << std::endl;
-}
+namespace Test {
+
+    template < typename T >
+    void print_container( std::ostream &os, const T &c )
+    {
+        typedef typename T::value_type value_type;
+        std::copy( c.begin(), c.end(), std::ostream_iterator<value_type>(os, " ") );
+        os << std::endl;
+    }
+
+} // namespace Test
 
 #endif
 
