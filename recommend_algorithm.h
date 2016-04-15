@@ -11,8 +11,8 @@
  * @param nItems        最多推荐物品数
  * @param recommended   推荐结果
  */
-extern void UserCF( const User_sptr &user, int k, int nItems, 
-                    std::vector<Item_sptr> &recommended );
+extern std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
+                           std::vector<RcmdItem> &rcmdItems );
 
 
 #endif

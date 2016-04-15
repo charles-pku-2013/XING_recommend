@@ -45,6 +45,14 @@ typedef std::shared_ptr<const User> User_csptr;
 typedef std::weak_ptr<User>         User_wptr;
 typedef std::weak_ptr<const User>   User_cwptr;
 
+struct RcmdItem {
+    Item_csptr    pItem;
+    float         weight;
+
+    bool operator < (const RcmdItem &rhs) const 
+    { return (weight > rhs.weight); }
+};
+
 
 enum CareerLevel {
     UNKNOWN,
@@ -70,18 +78,18 @@ enum InteractionType {
 
 // extern const char *EDU_DEGREE_TEXT[];
 
-struct ItemSetCmp {
+struct ItemPtrCmp {
     bool operator() (const Item_sptr &lhs, 
                      const Item_sptr &rhs) const;
 };
 
-struct UserSetCmp {
+struct UserPtrCmp {
     bool operator() (const User_sptr &lhs, 
                      const User_sptr &rhs) const;
 };
 
-typedef std::set<Item_sptr, ItemSetCmp, FAST_ALLOCATOR(Item_sptr)>   ItemSet;
-typedef std::set<User_sptr, UserSetCmp, FAST_ALLOCATOR(User_sptr)>   UserSet;
+typedef std::set<Item_sptr, ItemPtrCmp, FAST_ALLOCATOR(Item_sptr)>   ItemSet;
+typedef std::set<User_sptr, UserPtrCmp, FAST_ALLOCATOR(User_sptr)>   UserSet;
 
 class InteractionRecord {
 public:
@@ -577,11 +585,13 @@ bool read_from_string( const char *s, T &value )
 namespace Test {
 
     template < typename T >
-    void print_container( std::ostream &os, const T &c )
+    std::ostream& print_container( std::ostream &os, const T &c )
     {
         typedef typename T::value_type value_type;
         std::copy( c.begin(), c.end(), std::ostream_iterator<value_type>(os, " ") );
         os << std::endl;
+
+        return os;
     }
 
 } // namespace Test

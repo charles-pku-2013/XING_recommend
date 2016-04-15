@@ -26,11 +26,11 @@ FAST_ALLOCATOR( Item )  Item::s_allocator;
  * };
  */
 
-bool ItemSetCmp::operator() (const Item_sptr &lhs, 
+bool ItemPtrCmp::operator() (const Item_sptr &lhs, 
                              const Item_sptr &rhs) const
 { return lhs->ID() < rhs->ID(); };
 
-bool UserSetCmp::operator() (const User_sptr &lhs, 
+bool UserPtrCmp::operator() (const User_sptr &lhs, 
         const User_sptr &rhs) const
 { return lhs->ID() < rhs->ID(); };
 

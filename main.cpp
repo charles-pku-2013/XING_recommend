@@ -650,7 +650,7 @@ void handle_command()
             int k, nItems;
             str >> k >> nItems;
             User_sptr pUser;
-            std::vector<Item_sptr> recommended;
+            std::vector<RcmdItem> recommended;
             if ( !g_pUserDB->queryUser(id, pUser) ) {
                 cout << "Cannot find user " << id << endl;
                 continue;
