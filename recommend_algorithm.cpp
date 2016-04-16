@@ -2,6 +2,7 @@
 #include <cmath>
 #include <functional>
 #include <algorithm>
+#include <glog/logging.h>
 
 
 std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems, 
@@ -9,12 +10,28 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
 {
     using namespace std;
 
+    auto err_ret = [](int retval, const char *msg) {
+        cerr << msg << endl;
+        return retval;
+    };
+
+    rcmdItems.clear();
+
+    if (!k)
+        err_ret(0, "Invalid k value!");
+
     typedef std::map<User_sptr, float, UserPtrCmp>  UserSimMap;
 
     // first, find all items that "user" has positive interactions.
     // 找出目标用户u所有的兴趣物品集合N(u).
     ItemSet     setNu;
     user->interestedItems( setNu );
+    if (!setNu.size()) {
+        LOG(INFO) << "Target user " << user->ID() << " do not have histroy interests record, cannot recommend!";
+        return 0;
+    } // if
+
+    // LOG(INFO) << "size of setNu is " << setNu.size();
 
     // test
     /*
@@ -31,6 +48,7 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     for (const Item_sptr &itemI : setNu) {
         UserSet setNi;
         itemI->interestedByUsers( setNi );
+        // LOG(INFO) << "item " << itemI->ID() << " liked by " << setNi.size() << " users";
         for (const User_sptr &userV : setNi) {
             if (userV->ID() == user->ID())
                 continue;
@@ -42,14 +60,14 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     for (auto &v : wuv) {
         ItemSet                   setNv;
         v.first->interestedItems( setNv );
+        // setNv.size() 肯定不为0
         v.second /= std::sqrt( (float)(setNu.size()) * setNv.size() );
     } // for
 
-    // 从和目标用户u有相似度的用户集合v∈N(i)中找出前K个最相似的用户S(u,K)
+    // 从和目标用户u有相似度的用户集合v∈N(i)中(wuv != 0)找出前K个最相似的用户S(u,K)
     //!! 不可以直接用 map::value_type, 其pair.first是const
     typedef std::pair< User_sptr, float > UserSimPair;
     std::vector<UserSimPair> userSimValue( wuv.begin(), wuv.end() );
-    std::vector<UserSimPair>::iterator endIt;
 
     auto userSimValueCmp = [] ( const UserSimPair &lhs,
                              const UserSimPair &rhs )->bool
@@ -58,10 +76,9 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     if (k < userSimValue.size()) {
         std::partial_sort( userSimValue.begin(), userSimValue.begin() + k, 
                    userSimValue.end(), userSimValueCmp );
-        endIt = userSimValue.begin() + k;
+        userSimValue.resize(k);
     } else {
         std::sort( userSimValue.begin(), userSimValue.end(), userSimValueCmp );
-        endIt = userSimValue.end();
     } // if
 
 /*
@@ -73,7 +90,7 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     typedef std::map<Item_sptr, float, ItemPtrCmp> RcmdItemMap;
     RcmdItemMap rcmdItemMap;
 
-    for (auto it = userSimValue.begin(); it != endIt; ++it) {
+    for (auto it = userSimValue.begin(); it != userSimValue.end(); ++it) {
         User_sptr userV = it->first;
         ItemSet setNv;
         userV->interestedItems( setNv );

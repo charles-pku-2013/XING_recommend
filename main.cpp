@@ -2,9 +2,14 @@
 #include "recommend_algorithm.h"
 #include <glog/logging.h>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <cassert>
 #include <cctype>
+
+#define    RECALL_SIZE 30
+
+using std::cout; using std::endl;
 
 std::unique_ptr< UserDB >        g_pUserDB;
 std::unique_ptr< ItemDB >        g_pItemDB;
@@ -12,6 +17,11 @@ std::unique_ptr< InteractionStore > g_InteractStore;
 uint32_t         g_nMaxUserID = 0;
 uint32_t         g_nMaxItemID = 0;
 uint32_t         g_nMaxThread = 1;
+
+// test data
+typedef std::set<uint32_t>            _IdSet;
+typedef std::map<uint32_t, _IdSet>    TestDataSet;
+static TestDataSet                    g_TestData;
 
 // for test
 static void handle_command();
@@ -515,11 +525,11 @@ void load_interaction_data( const char *filename )
         str >> userID >> itemID >> interactType >> timestamp;
         assert( interactType < N_INTERACTION_TYPE );
         if ( !g_pUserDB->queryUser(userID, pUser) ) {
-            LOG(INFO) << "load_interaction_data cannot find user: " << userID;
+            // LOG(INFO) << "load_interaction_data cannot find user: " << userID;
             return;
         } // if
         if ( !g_pItemDB->queryItem(itemID, pItem) ) {
-            LOG(INFO) << "load_interaction_data cannot find item: " << itemID;
+            // LOG(INFO) << "load_interaction_data cannot find item: " << itemID;
             return;
         } // if
         if ( (time_t)timestamp < pItem->createTime() ) {
@@ -556,6 +566,189 @@ void load_interaction_data( const char *filename )
 
 
 static
+void load_test_data( const char *filename )
+{
+    using namespace std;
+
+    ifstream inFile( filename, ios::in );
+
+    if( !inFile )
+        throw runtime_error( "Cannot open iteraction data file!" );
+
+    // skip the title line
+    string line;
+    getline( inFile, line );
+    if( !inFile )
+        throw runtime_error( "Invalid interaction data format!" );
+
+    uint32_t userID, itemID, type;
+    while (getline(inFile, line)) {
+        stringstream str(line);
+        str >> userID >> itemID >> type;
+        if (type == DELETE)
+            continue;
+        g_TestData[userID].insert(itemID);
+    } // while
+}
+
+static
+float score_one( const std::vector<uint32_t> &rcmdItems, 
+                 const std::set<uint32_t> &relevantItems,
+                 uint32_t &nCorrect,
+                 float &precision2, float &precision4, float &precision6,
+                 float &precision20, float &precision30, float &fRecall )
+{
+    using namespace std;
+
+    bool              userSuccess = false;
+
+    auto prescisionAtk = [&] (uint32_t k)->float {
+        auto endIt = (k < rcmdItems.size() 
+                        ? rcmdItems.begin() + k
+                        : rcmdItems.end());
+
+        vector<uint32_t> interSet;
+        std::set_intersection( rcmdItems.begin(), endIt, 
+                               relevantItems.begin(), relevantItems.end(),
+                               std::back_inserter(interSet) );
+
+        return interSet.size() / (float)k;
+    };
+
+    auto recall = [&] ()->float {
+        auto endIt = (RECALL_SIZE < rcmdItems.size() 
+                        ? rcmdItems.begin() + RECALL_SIZE
+                        : rcmdItems.end());
+
+        vector<uint32_t> interSet;
+        std::set_intersection( rcmdItems.begin(), endIt, 
+                               relevantItems.begin(), relevantItems.end(),
+                               std::back_inserter(interSet) );
+
+        nCorrect = interSet.size();
+        userSuccess = (interSet.empty() ? false : true);
+        precision30 = (float)(interSet.size()) / RECALL_SIZE;
+
+        return (float)(interSet.size()) / relevantItems.size();
+    };
+
+    precision2 = prescisionAtk(2);
+    precision4 = prescisionAtk(4);
+    precision6 = prescisionAtk(6);
+    precision20 = prescisionAtk(20);
+    fRecall = recall();
+
+    return (20 * (precision2 + precision4 + fRecall + userSuccess) + 
+            10 * (precision6 + precision20));
+}
+
+/*
+ * static
+ * void do_recommend( uint32_t k )
+ * {
+ *     float score = 0.0;
+ * 
+ *     for (const auto &v : g_TestData) {
+ *         uint32_t                 uID = v.first;
+ *         const std::set<uint32_t> &testItemSet = v.second;
+ *         User_sptr                pUser;
+ * 
+ *         if ( !g_pUserDB->queryUser(uID, pUser) ) {
+ *             LOG(INFO) << "No user " << uID << " found in user database.";
+ *             continue;
+ *         } // if
+ * 
+ *         std::vector<RcmdItem> rcmdItems;
+ *         UserCF( pUser, k, RECALL_SIZE, rcmdItems );
+ *         if (rcmdItems.empty()) {
+ *             LOG(INFO) << "No item recommended to user " << uID;
+ *             continue;
+ *         } // if
+ * 
+ *         std::vector<uint32_t> rItemIds( rcmdItems.size() );
+ *         for (std::size_t i = 0; i != rcmdItems.size(); ++i)
+ *             rItemIds[i] = rcmdItems[i].pItem->ID();
+ *         score += score_one( rItemIds, testItemSet );
+ *     } // for
+ * 
+ *     cout << "Total score: " << score << endl;
+ * }
+ */
+
+static
+void do_recommend_mt( uint32_t k, const char *filename )
+{
+    using namespace std;
+
+    float         score = 0.0;
+    auto          it = g_TestData.begin();
+    boost::mutex  itMtx, scoreMtx, fileMtx;
+
+    ofstream ofs(filename, ios::out);
+    if (!ofs) {
+        cerr << "Cannot open " << filename << " for writting!" << endl;
+        return;
+    } // if
+
+    ofs << "UserID\tN_Correct\tPrecisionAt2\tPrecisionAt4\tPrecisionAt6\tPrecisionAt20\tPrecisionAt30\tRecall\tRecommendedItems" << endl;
+
+    auto threadRoutine = [&] {
+        while (true) {
+            boost::unique_lock< boost::mutex >  itlck(itMtx);
+            if (it == g_TestData.end())
+                return;
+            uint32_t                 uID = it->first;
+            const std::set<uint32_t> &testItemSet = it->second;
+            ++it;
+            itlck.unlock();
+
+            User_sptr                pUser;
+            if ( !g_pUserDB->queryUser(uID, pUser) ) {
+                LOG(INFO) << "No user " << uID << " found in user database.";
+                continue;
+            } // if
+
+            std::vector<RcmdItem> rcmdItems;
+            UserCF( pUser, k, RECALL_SIZE, rcmdItems );
+            if (rcmdItems.empty()) {
+                LOG(INFO) << "No item recommended to user " << uID;
+                continue;
+            } // if
+
+            std::vector<uint32_t> rItemIds( rcmdItems.size() );
+            for (std::size_t i = 0; i != rcmdItems.size(); ++i)
+                rItemIds[i] = rcmdItems[i].pItem->ID();
+
+            uint32_t nCorrect;
+            float precision2, precision4, precision6, precision20, precision30, fRecall;
+            float localScore = score_one( rItemIds, testItemSet, nCorrect,
+                        precision2, precision4, precision6, precision20, precision30, fRecall );
+
+            boost::unique_lock< boost::mutex >  scLck(scoreMtx);
+            score += localScore;
+            scLck.unlock();
+
+            boost::unique_lock< boost::mutex >  fLck(fileMtx);
+            ofs << std::setprecision(3) << uID << "\t" << nCorrect << "\t" 
+                               << precision2 << "\t" << precision4 << "\t" 
+                               << precision6 << "\t" << precision20 << "\t"
+                               << precision30 << "\t" << fRecall << "\t";
+            for (auto rit = rcmdItems.begin(); rit != rcmdItems.end()-1; ++rit)
+                ofs << rit->pItem->ID() << ":" << rit->weight << ",";
+            ofs << rcmdItems.back().pItem->ID() << ":" << rcmdItems.back().weight << endl;
+            fLck.unlock();
+        } // while
+    };
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( threadRoutine );
+    thrgroup.join_all();
+
+    cout << "Total score: " << score << endl;
+}
+
+static
 void init()
 {
     g_pUserDB.reset( new UserDB );
@@ -586,10 +779,22 @@ int main( int argc, char **argv )
         load_item_data( "items.csv" );
 
         cout << "Loading interaction data..." << endl;
-        load_interaction_data( "interactions.csv" );
+        load_interaction_data( "interactions_train.csv" );
         print_data_info();
+        cout << "Loading test data..." << endl;
+        load_test_data( "interactions_test.csv" );
+        cout << g_TestData.size() << " users for test." << endl;
         // gen_small_dataset( 80000, 100000 );
-        handle_command();
+        // handle_command();
+        cout << "Input k for usercf:" << endl;
+        int k;
+        cin >> k;
+        cout << "Processing recommendation..." << endl;
+        time_t now = time(0);
+        cout << ctime(&now) << endl;
+        do_recommend_mt( k, "rcmd_result.txt" );
+        now = time(0);
+        cout << ctime(&now) << endl;
 
     } catch ( const exception &ex ) {
         cerr << "Exception: " << ex.what() << endl;
@@ -626,6 +831,38 @@ void print_item_info( uint32_t id )
         cout << "No item found for id: " << id << endl;
 }
 
+/*
+ * static
+ * void evaluate_one( uint32_t userID, const std::vector<RcmdItem> &rcmdItems )
+ * {
+ *     using namespace std;
+ * 
+ *     auto it = g_TestData.find(userID);
+ *     if (it == g_TestData.end()) {
+ *         cout << "No record of user " << userID << " in test data set." << endl;
+ *         return;
+ *     } // if
+ * 
+ *     const std::set<uint32_t> &idSet = it->second;
+ * 
+ *     vector<uint32_t> interSet;
+ *     vector<uint32_t> itemIds( rcmdItems.size() );
+ * 
+ *     for (size_t i = 0; i != rcmdItems.size(); ++i)
+ *         itemIds[i] = rcmdItems[i].pItem->ID();
+ * 
+ *     sort( itemIds.begin(), itemIds.end() );
+ * 
+ * 
+ *     std::set_intersection( idSet.begin(), idSet.end(), itemIds.begin(), itemIds.end(),
+ *                            std::back_inserter(interSet) );
+ * 
+ *     cout << "Total " << interSet.size() << " correct recommendation." << endl;
+ *     cout << "Score is " << score_one(itemIds, idSet) << endl;
+ * }
+ */
+
+
 static
 void handle_command()
 {
@@ -650,12 +887,16 @@ void handle_command()
             int k, nItems;
             str >> k >> nItems;
             User_sptr pUser;
-            std::vector<RcmdItem> recommended;
             if ( !g_pUserDB->queryUser(id, pUser) ) {
                 cout << "Cannot find user " << id << endl;
                 continue;
             } // if
-            UserCF( pUser, 0, 30, recommended );
+            std::vector<RcmdItem> rcmdItems;
+            UserCF( pUser, k, nItems, rcmdItems );
+            cout << "Total " << rcmdItems.size() << " recommended items." << endl;
+            for (const auto &i : rcmdItems)
+                cout << i.pItem->ID() << "\t" << i.weight << endl;
+            // evaluate_one( id, rcmdItems );
         } else {
             cout << "Invalid command!" << endl;
             continue;

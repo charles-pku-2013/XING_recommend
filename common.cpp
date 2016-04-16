@@ -76,7 +76,7 @@ std::size_t User::interestedItems( ItemSet &iSet )
         count += iMap.size();
         for (auto it = iMap.begin(); it != iMap.end(); ++it) {
             InteractionVector &vec = it->second;
-            assert( !vec.empty() );
+            // assert( !vec.empty() );
             InteractionRecord_sptr pInt( vec[0] );
             Item_sptr pItem = pInt->item();
             iSet.insert( pItem );
@@ -98,7 +98,7 @@ std::size_t Item::interestedByUsers( UserSet &uSet )
         count += iMap.size();
         for (auto it = iMap.begin(); it != iMap.end(); ++it) {
             InteractionVector &vec = it->second;
-            assert( !vec.empty() );
+            // assert( !vec.empty() );
             InteractionRecord_sptr pInt( vec[0] );
             User_sptr pUser = pInt->user();
             uSet.insert( pUser );
