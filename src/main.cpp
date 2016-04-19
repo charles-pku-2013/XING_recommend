@@ -20,7 +20,7 @@ uint32_t         g_nMaxThread = 1;
 
 // test data
 typedef std::set<uint32_t>            _IdSet;
-typedef std::map<uint32_t, _IdSet>    TestDataSet;
+typedef std::map<uint32_t, _IdSet>    TestDataSet;  // {uid: set(itemid 正反馈id列表)}
 static TestDataSet                    g_TestData;
 
 // for test
@@ -642,38 +642,69 @@ float score_one( const std::vector<uint32_t> &rcmdItems,
             10 * (precision6 + precision20));
 }
 
-/*
- * static
- * void do_recommend( uint32_t k )
- * {
- *     float score = 0.0;
- * 
- *     for (const auto &v : g_TestData) {
- *         uint32_t                 uID = v.first;
- *         const std::set<uint32_t> &testItemSet = v.second;
- *         User_sptr                pUser;
- * 
- *         if ( !g_pUserDB->queryUser(uID, pUser) ) {
- *             LOG(INFO) << "No user " << uID << " found in user database.";
- *             continue;
- *         } // if
- * 
- *         std::vector<RcmdItem> rcmdItems;
- *         UserCF( pUser, k, RECALL_SIZE, rcmdItems );
- *         if (rcmdItems.empty()) {
- *             LOG(INFO) << "No item recommended to user " << uID;
- *             continue;
- *         } // if
- * 
- *         std::vector<uint32_t> rItemIds( rcmdItems.size() );
- *         for (std::size_t i = 0; i != rcmdItems.size(); ++i)
- *             rItemIds[i] = rcmdItems[i].pItem->ID();
- *         score += score_one( rItemIds, testItemSet );
- *     } // for
- * 
- *     cout << "Total score: " << score << endl;
- * }
- */
+static
+void do_recommend_openmp( uint32_t k, const char *filename )
+{
+    using namespace std;
+
+    float score = 0.0;
+
+    ofstream ofs(filename, ios::out);
+    if (!ofs) {
+        cerr << "Cannot open " << filename << " for writting!" << endl;
+        return;
+    } // if
+
+    ofs << "UserID\tN_Correct\tPrecisionAt2\tPrecisionAt4\tPrecisionAt6\tPrecisionAt20\tPrecisionAt30\tRecall\tRecommendedItems" << endl;
+
+    auto process = [&]( const TestDataSet::value_type &v ) {
+        uint32_t                 uID = v.first;
+        const std::set<uint32_t> &testItemSet = v.second;
+        User_sptr                pUser;
+
+        if ( !g_pUserDB->queryUser(uID, pUser) ) {
+            LOG(INFO) << "No user " << uID << " found in user database.";
+            return;
+        } // if
+
+        std::vector<RcmdItem> rcmdItems;
+        UserCF( pUser, k, RECALL_SIZE, rcmdItems );
+        if (rcmdItems.empty()) {
+            LOG(INFO) << "No item recommended to user " << uID;
+            return;
+        } // if
+
+        std::vector<uint32_t> rItemIds( rcmdItems.size() );
+        for (std::size_t i = 0; i != rcmdItems.size(); ++i)
+            rItemIds[i] = rcmdItems[i].pItem->ID();
+        uint32_t nCorrect;
+        float precision2, precision4, precision6, precision20, precision30, fRecall;
+        float localScore = score_one( rItemIds, testItemSet, nCorrect,
+                precision2, precision4, precision6, precision20, precision30, fRecall );
+#pragma omp critical
+        {
+            score += localScore;
+            ofs << std::setprecision(3) << uID << "\t" << nCorrect << "\t" 
+                               << precision2 << "\t" << precision4 << "\t" 
+                               << precision6 << "\t" << precision20 << "\t"
+                               << precision30 << "\t" << fRecall << "\t";
+            for (auto rit = rcmdItems.begin(); rit != rcmdItems.end()-1; ++rit)
+                ofs << rit->pItem->ID() << ":" << rit->weight << ",";
+            ofs << rcmdItems.back().pItem->ID() << ":" << rcmdItems.back().weight << endl;
+        } // omp critical
+    };
+
+#pragma omp parallel
+#pragma omp single
+    {
+    for (auto it = g_TestData.begin(); it != g_TestData.end(); ++it)
+#pragma omp task firstprivate(it)
+        process(*it);
+#pragma omp taskwait
+    } // omp single
+
+    cout << "Total score: " << score << endl;
+}
 
 static
 void do_recommend_mt( uint32_t k, const char *filename )
@@ -774,15 +805,15 @@ int main( int argc, char **argv )
         init();
 
         cout << "Loading users data..." << endl;
-        load_user_data( "users.csv" );
+        load_user_data( "data/users.csv" );
         cout << "Loading items data..." << endl;
-        load_item_data( "items.csv" );
+        load_item_data( "data/items.csv" );
 
         cout << "Loading interaction data..." << endl;
-        load_interaction_data( "interactions_train.csv" );
+        load_interaction_data( "data/interactions_train.csv" );
         print_data_info();
         cout << "Loading test data..." << endl;
-        load_test_data( "interactions_test.csv" );
+        load_test_data( "data/interactions_test.csv" );
         cout << g_TestData.size() << " users for test." << endl;
         // gen_small_dataset( 80000, 100000 );
         // handle_command();
@@ -792,7 +823,8 @@ int main( int argc, char **argv )
         cout << "Processing recommendation..." << endl;
         time_t now = time(0);
         cout << ctime(&now) << endl;
-        do_recommend_mt( k, "rcmd_result.txt" );
+        do_recommend_openmp( k, "rcmd_result.txt" );
+        cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;
 

@@ -86,6 +86,28 @@ std::size_t User::interestedItems( ItemSet &iSet )
     return count;
 }
 
+std::size_t User::interestedItems( std::set<uint32_t> &idSet )
+{
+    std::size_t count = 0;
+
+    idSet.clear();
+    for (uint32_t i = CLICK; i != DELETE; ++i) {
+        InteractionMap &iMap = this->interactionMap( i );
+        if (iMap.empty())
+            continue;
+        count += iMap.size();
+        for (auto it = iMap.begin(); it != iMap.end(); ++it) {
+            InteractionVector &vec = it->second;
+            // assert( !vec.empty() );
+            InteractionRecord_sptr pInt( vec[0] );
+            Item_sptr pItem = pInt->item();
+            idSet.insert( pItem->ID() );
+        } // for
+    } // for
+
+    return count;
+}
+
 std::size_t Item::interestedByUsers( UserSet &uSet )
 {
     std::size_t count = 0;
@@ -102,6 +124,28 @@ std::size_t Item::interestedByUsers( UserSet &uSet )
             InteractionRecord_sptr pInt( vec[0] );
             User_sptr pUser = pInt->user();
             uSet.insert( pUser );
+        } // for
+    } // for
+
+    return count;
+}
+
+std::size_t Item::interestedByUsers( std::set<uint32_t> &idSet )
+{
+    std::size_t count = 0;
+
+    idSet.clear();
+    for (uint32_t i = CLICK; i != DELETE; ++i) {
+        InteractionMap &iMap = this->interactionMap( i );
+        if (iMap.empty())
+            continue;
+        count += iMap.size();
+        for (auto it = iMap.begin(); it != iMap.end(); ++it) {
+            InteractionVector &vec = it->second;
+            // assert( !vec.empty() );
+            InteractionRecord_sptr pInt( vec[0] );
+            User_sptr pUser = pInt->user();
+            idSet.insert( pUser->ID() );
         } // for
     } // for
 

@@ -1,2 +1,0 @@
-all:
-	c++ -o test.bin main.cpp common.cpp recommend_algorithm.cpp -std=c++11 -I/opt/local/include -L/opt/local/lib -pthread -lboost_system -lboost_thread -lglog -g -O3

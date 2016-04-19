@@ -294,6 +294,7 @@ public:
     { return m_InteractionTable[ type_index ]; }
 
     std::size_t interestedItems( ItemSet &iSet );
+    std::size_t interestedItems( std::set<uint32_t> &idSet );
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
@@ -335,6 +336,10 @@ public:
         VOLUNTARY,
         N_EMPLOYMENT_TYPE
     };
+
+// 相似度
+struct SimilarityTable : std::map<uint32_t, float>
+                       , boost::basic_lockable_adapter< boost::mutex > {};
 
 public:
     Item() : m_ID(0), m_nCareerLevel(0), m_DiscplineID(0), m_IndustryID(0)
@@ -424,6 +429,13 @@ public:
     { return m_InteractionTable[ type_index ]; }
 
     std::size_t interestedByUsers( UserSet &uSet );
+    std::size_t interestedByUsers( std::set<uint32_t> &idSet );
+
+    // 相似度
+    SimilarityTable& similarItems()
+    { return m_SimilarityTable; }
+    const SimilarityTable& similarItems() const
+    { return m_SimilarityTable; }
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
@@ -446,6 +458,8 @@ private:
     time_t                  m_tCreateTime;
     bool                    m_bActive;
     InteractionTable        m_InteractionTable;
+
+    SimilarityTable         m_SimilarityTable;
 
     // not used memory op
     static void* operator new[]( std::size_t sz );

@@ -124,3 +124,75 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
 
     return rcmdItems.size();
 }
+
+
+bool g_bDoneItemSimilarity = false;
+static void get_all_items_similarity();
+std::size_t ItemCF( const User_sptr &user, std::size_t k, std::size_t nItems,
+                           std::vector<RcmdItem> &rcmdItems )
+{
+    using namespace std;
+
+    auto err_ret = [](int retval, const char *msg) {
+        cerr << msg << endl;
+        return retval;
+    };
+
+    rcmdItems.clear();
+
+    if (!k)
+        err_ret(0, "Invalid k value!");
+
+    if (!g_bDoneItemSimilarity) {
+        get_all_items_similarity();
+        g_bDoneItemSimilarity = true;
+    } // if
+
+    return rcmdItems.size();
+}
+
+void get_all_items_similarity()
+{
+    auto&        userDbTable = g_pUserDB->content();
+    uint32_t     idx = 0;
+    boost::mutex idxMtx;
+
+    auto processUser = [&](const User_sptr &pUser) {
+        ItemSet itemSet;
+        pUser->interestedItems( itemSet );
+        std::vector<Item_sptr> items( itemSet.begin(), itemSet.end() );
+        float value = 1.0 / std::log(1.0 + items.size());
+
+        for (std::size_t i = 0; i != items.size()-1; ++i) {
+            for (std::size_t j = i + 1; j != items.size(); ++j) {
+                auto &si = items[i]->similarItems();
+                auto &sj = items[j]->similarItems();
+                boost::unique_lock< std::remove_reference<decltype(si)>::type > lockI(si);
+                boost::unique_lock< std::remove_reference<decltype(sj)>::type > lockJ(sj);
+                si[items[j]->ID()] += value;
+                sj[items[i]->ID()] += value;
+            } // for j
+        } // for i
+    };
+
+    auto threadRoutine = [&] {
+        while (true) {
+            boost::unique_lock< boost::mutex >  lock(idxMtx);
+            if (idx == UserDB::HASH_SIZE)
+                return;
+            auto& uMap = userDbTable[idx++];
+            lock.unlock();
+
+            for (auto &v : uMap) {
+                User_sptr pUser = v.second;
+                processUser( pUser );
+            } // for
+        } // while
+    };
+
+    boost::thread_group thrgroup;
+    for( uint32_t i = 0; i < g_nMaxThread; ++i )
+        thrgroup.create_thread( threadRoutine );
+    thrgroup.join_all();
+}
+

@@ -16,5 +16,9 @@ extern std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nIt
                            std::vector<RcmdItem> &rcmdItems );
 
 
+extern bool g_bDoneItemSimilarity;
+extern std::size_t ItemCF( const User_sptr &user, std::size_t k, std::size_t nItems,
+                           std::vector<RcmdItem> &rcmdItems );
+
 #endif
 
