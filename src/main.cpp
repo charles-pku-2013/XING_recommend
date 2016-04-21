@@ -643,7 +643,7 @@ float score_one( const std::vector<uint32_t> &rcmdItems,
 }
 
 static
-void do_recommend_openmp( uint32_t k, const char *filename )
+void recommend_with_UserCF_OpenMP( uint32_t k, const char *filename )
 {
     using namespace std;
 
@@ -694,6 +694,7 @@ void do_recommend_openmp( uint32_t k, const char *filename )
         } // omp critical
     };
 
+    // TODO cannot run on mac, use pointers instead
 #pragma omp parallel
 #pragma omp single
     {
@@ -707,7 +708,7 @@ void do_recommend_openmp( uint32_t k, const char *filename )
 }
 
 static
-void do_recommend_mt( uint32_t k, const char *filename )
+void recommend_with_UserCF_mt( uint32_t k, const char *filename )
 {
     using namespace std;
 
@@ -780,6 +781,21 @@ void do_recommend_mt( uint32_t k, const char *filename )
 }
 
 static
+void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
+{
+    using namespace std;
+
+    // test 
+    {
+        vector<RcmdItem> rcmd;
+        User_sptr pUser;
+        pUser.reset( new User );
+        pUser->ID() = 1000;
+        ItemCF( pUser, k, RECALL_SIZE, rcmd );
+    }
+}
+
+static
 void init()
 {
     g_pUserDB.reset( new UserDB );
@@ -823,7 +839,9 @@ int main( int argc, char **argv )
         cout << "Processing recommendation..." << endl;
         time_t now = time(0);
         cout << ctime(&now) << endl;
-        do_recommend_openmp( k, "rcmd_result.txt" );
+        // recommend_with_UserCF_OpenMP( k, "rcmd_result.txt" );
+        // recommend_with_UserCF_mt( k, "rcmd_result.txt" );
+        recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
         cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;

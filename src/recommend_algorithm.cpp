@@ -129,7 +129,7 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
 bool g_bDoneItemSimilarity = false;
 static void get_all_items_similarity();
 std::size_t ItemCF( const User_sptr &user, std::size_t k, std::size_t nItems,
-                           std::vector<RcmdItem> &rcmdItems )
+                    std::vector<RcmdItem> &rcmdItems )
 {
     using namespace std;
 
@@ -151,48 +151,73 @@ std::size_t ItemCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     return rcmdItems.size();
 }
 
+static
 void get_all_items_similarity()
 {
-    auto&        userDbTable = g_pUserDB->content();
-    uint32_t     idx = 0;
-    boost::mutex idxMtx;
+    using namespace std;
+    // cout << "get_all_items_similarity start" << endl;
 
-    auto processUser = [&](const User_sptr &pUser) {
-        ItemSet itemSet;
-        pUser->interestedItems( itemSet );
-        std::vector<Item_sptr> items( itemSet.begin(), itemSet.end() );
-        float value = 1.0 / std::log(1.0 + items.size());
+    size_t nItems = g_pItemDB->size();
+    vector<Item_sptr> allItems;
+    allItems.reserve(nItems);
 
-        for (std::size_t i = 0; i != items.size()-1; ++i) {
-            for (std::size_t j = i + 1; j != items.size(); ++j) {
-                auto &si = items[i]->similarItems();
-                auto &sj = items[j]->similarItems();
-                boost::unique_lock< std::remove_reference<decltype(si)>::type > lockI(si);
-                boost::unique_lock< std::remove_reference<decltype(sj)>::type > lockJ(sj);
-                si[items[j]->ID()] += value;
-                sj[items[i]->ID()] += value;
-            } // for j
-        } // for i
-    };
+    const auto &itemDbContent = g_pItemDB->content();
+    for (uint32_t i = 0; i != ItemDB::HASH_SIZE; ++i) {
+        const auto &elem = itemDbContent[i];
+        for (const auto &v : elem)
+            allItems.push_back( v.second );
+    } // for i
 
-    auto threadRoutine = [&] {
-        while (true) {
-            boost::unique_lock< boost::mutex >  lock(idxMtx);
-            if (idx == UserDB::HASH_SIZE)
-                return;
-            auto& uMap = userDbTable[idx++];
-            lock.unlock();
-
-            for (auto &v : uMap) {
-                User_sptr pUser = v.second;
-                processUser( pUser );
-            } // for
-        } // while
-    };
-
-    boost::thread_group thrgroup;
-    for( uint32_t i = 0; i < g_nMaxThread; ++i )
-        thrgroup.create_thread( threadRoutine );
-    thrgroup.join_all();
+    cout << allItems.size() << endl;
+    cout << g_pItemDB->size() << endl;
+    // cout << "get_all_items_similarity done!" << endl;
 }
+
+
+/*
+ * void get_all_items_similarity()
+ * {
+ *     auto&        userDbTable = g_pUserDB->content();
+ *     uint32_t     idx = 0;
+ *     boost::mutex idxMtx;
+ * 
+ *     auto processUser = [&](const User_sptr &pUser) {
+ *         ItemSet itemSet;
+ *         pUser->interestedItems( itemSet );
+ *         std::vector<Item_sptr> items( itemSet.begin(), itemSet.end() );
+ *         float value = 1.0 / std::log(1.0 + items.size());
+ * 
+ *         for (std::size_t i = 0; i != items.size()-1; ++i) {
+ *             for (std::size_t j = i + 1; j != items.size(); ++j) {
+ *                 auto &si = items[i]->similarItems();
+ *                 auto &sj = items[j]->similarItems();
+ *                 boost::unique_lock< std::remove_reference<decltype(si)>::type > lockI(si);
+ *                 boost::unique_lock< std::remove_reference<decltype(sj)>::type > lockJ(sj);
+ *                 si[items[j]->ID()] += value;
+ *                 sj[items[i]->ID()] += value;
+ *             } // for j
+ *         } // for i
+ *     };
+ * 
+ *     auto threadRoutine = [&] {
+ *         while (true) {
+ *             boost::unique_lock< boost::mutex >  lock(idxMtx);
+ *             if (idx == UserDB::HASH_SIZE)
+ *                 return;
+ *             auto& uMap = userDbTable[idx++];
+ *             lock.unlock();
+ * 
+ *             for (auto &v : uMap) {
+ *                 User_sptr pUser = v.second;
+ *                 processUser( pUser );
+ *             } // for
+ *         } // while
+ *     };
+ * 
+ *     boost::thread_group thrgroup;
+ *     for( uint32_t i = 0; i < g_nMaxThread; ++i )
+ *         thrgroup.create_thread( threadRoutine );
+ *     thrgroup.join_all();
+ * }
+ */
 

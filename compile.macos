@@ -1,8 +1,0 @@
-#! /bin/bash
-
-export C_INCLUDE_PATH=$C_INCLUDE_PATH:/opt/local/include
-export CPLUS_INCLUDE_PATH=$CPLUS_INCLUDE_PATH:/opt/local/include
-export LIBRARY_PATH=$LIBRARY_PATH:/opt/local/lib
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/local/lib
-
-make

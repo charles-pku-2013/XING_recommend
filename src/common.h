@@ -503,12 +503,13 @@ public:
         return false;
     }
 
-    uint32_t size() const
+    std::size_t size( bool update = false )
     {
-        uint32_t totalSize = 0;
-        for( uint32_t i = 0; i < HASH_SIZE; ++i )
-            totalSize += m_UserDB[i].size();
-        return totalSize;
+        if (!m_nSize || update) {
+            for( uint32_t i = 0; i < HASH_SIZE; ++i )
+                m_nSize += m_UserDB[i].size();
+        } // if
+        return m_nSize;
     }
 
     // void sortInteractions( const InteractionRecordCmpFunc &cmp );
@@ -517,6 +518,7 @@ private:
     // void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
                                     // const InteractionRecordCmpFunc &cmp );
 
+    std::size_t         m_nSize;
     UserDBStorage       m_UserDB;
 };
 
@@ -535,6 +537,8 @@ public:
     typedef ItemDBRecord        ItemDBStorage[HASH_SIZE];
 
 public:
+    ItemDB() : m_nSize(0) {}
+
     ItemDBStorage& content()
     { return m_ItemDB; }
     const ItemDBStorage& content() const
@@ -553,12 +557,13 @@ public:
         return false;
     }
 
-    uint32_t size() const
+    std::size_t size( bool update = false )
     {
-        uint32_t totalSize = 0;
-        for( uint32_t i = 0; i < HASH_SIZE; ++i )
-            totalSize += m_ItemDB[i].size();
-        return totalSize;
+        if (!m_nSize || update) {
+            for( uint32_t i = 0; i < HASH_SIZE; ++i )
+                m_nSize += m_ItemDB[i].size();
+        } // if
+        return m_nSize;
     }
 
     // void sortInteractions( const InteractionRecordCmpFunc &cmp );
@@ -567,6 +572,7 @@ private:
     // void sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
                                     // const InteractionRecordCmpFunc &cmp );
 
+    std::size_t         m_nSize;
     ItemDBStorage       m_ItemDB;
 };
 
