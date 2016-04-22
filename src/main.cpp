@@ -810,6 +810,42 @@ void init()
         g_nMaxThread = 1;
 }
 
+static
+void gen_join_data( const char *filename )
+{
+    using namespace std;
+
+    auto cmp = []( const InteractionRecord_sptr &lhs, const InteractionRecord_sptr &rhs )->bool {
+        return lhs->time() > rhs->time();
+    };
+    
+    cout << "Sorting interactions..." << endl;
+    size_t nAllInteractions = g_InteractStore->size();
+    vector<InteractionRecord_sptr>      interacts;
+    interacts.reserve( nAllInteractions );
+
+    auto &content = g_InteractStore->content();
+    for (uint32_t i = 0; i != InteractionStore::HASH_SIZE; ++i)
+        interacts.insert( interacts.end(), content[i].begin(), content[i].end() );
+    sort( interacts.begin(), interacts.end(), cmp );
+
+    cout << "All " << interacts.size() << " interaction records." << endl;
+
+    ofstream ofs( filename, ios::out );
+    ofs << "user_id\tuser_career_level\titem_id\titem_career_level\tinteraction_type\tcreated_at" << endl;
+    for ( const auto &p : interacts ) {
+        User_csptr pUser = p->user();
+        Item_csptr pItem = p->item();
+        ofs << pUser->ID() << "\t" << pUser->careerLevel() << "\t";
+        ofs << pItem->ID() << "\t" << pItem->careerLevel() << "\t";
+        ofs << p->type() << "\t" << p->time() << endl;
+    } // for
+
+    cout << "gen_join_data done!" << endl;
+    exit(0);
+}
+
+
 int main( int argc, char **argv )
 {
     using namespace std;
@@ -826,8 +862,9 @@ int main( int argc, char **argv )
         load_item_data( "data/items.csv" );
 
         cout << "Loading interaction data..." << endl;
-        load_interaction_data( "data/interactions_train.csv" );
+        load_interaction_data( "data/interactions.csv" );
         print_data_info();
+        gen_join_data( "data/join.csv" );
         cout << "Loading test data..." << endl;
         load_test_data( "data/interactions_test.csv" );
         cout << g_TestData.size() << " users for test." << endl;

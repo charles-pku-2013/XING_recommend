@@ -158,7 +158,7 @@ public:
     typedef InteractArray       InteractMatrix[ HASH_SIZE ];
 
 public:
-    InteractionStore() {}
+    InteractionStore() : m_nSize(0) {}
 
     InteractionStore( uint32_t reserveSize )
     {
@@ -174,15 +174,23 @@ public:
         arr.push_back( p );
     }
 
-    std::size_t size() const
+    std::size_t size( bool update = false )
     {
-        std::size_t sz = 0;
-        for( uint32_t i = 0; i < HASH_SIZE; ++i )
-            sz += m_Store[i].size();
-        return sz;
+        if (!m_nSize || update) {
+            for( uint32_t i = 0; i < HASH_SIZE; ++i )
+                m_nSize += m_Store[i].size();
+        } // if
+
+        return m_nSize;
     }
 
+    InteractMatrix& content()
+    { return m_Store; }
+    const InteractMatrix& content() const
+    { return m_Store; }
+
 private:
+    std::size_t                 m_nSize;
     InteractMatrix              m_Store;
 };
 

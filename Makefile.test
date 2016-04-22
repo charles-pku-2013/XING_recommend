@@ -1,0 +1,27 @@
+all: xing
+
+CXX = g++
+
+SRC = src/common.cpp \
+		src/main.cpp \
+		src/recommend_algorithm.cpp
+
+LIBS = -lboost_system -lboost_thread -lglog
+# FLAGS = -std=c++11 -fopenmp -pthread -O3
+FLAGS = -std=c++11 -pthread -O3
+
+ifeq ($(shell echo $$OSTYPE), darwin15)
+	FLAGS += -g
+else
+	FLAGS += -fopenmp
+endif
+
+xing:
+	$(CXX) -o $@.bin $(SRC) $(LIBS) $(FLAGS)
+
+clean:
+	rm -rf *.bin *.bin.*
+
+test:
+	$(info SRC = $(SRC))
+	$(info FLAGS = $(FLAGS))
