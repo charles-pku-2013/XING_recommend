@@ -57,9 +57,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->itemID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -74,9 +73,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->itemID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -91,9 +89,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->itemID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -108,9 +105,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->itemID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -150,9 +146,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->userID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -167,9 +162,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->userID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -184,9 +178,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->userID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -201,9 +194,8 @@ namespace std {
             for ( const auto &mValue : m ) {
                 const InteractionVector &v = mValue.second;
                 count += v.size();
-                for ( const auto &vValue : v ) {
+                for ( const auto sp : v ) {
                     // vValue is InteractionRecord_wptr
-                    InteractionRecord_sptr sp( vValue );
                     os << sp->userID() << "@" << sp->time() << " ";
                 } // for
             } // for
@@ -518,8 +510,8 @@ void load_interaction_data( const char *filename )
         uint32_t userID, itemID, interactType;
         unsigned long timestamp;
         InteractionRecord_sptr pInterRec;
-        User_sptr pUser;
-        Item_sptr pItem;
+        User *pUser;
+        Item *pItem;
 
         stringstream str(line);
         str >> userID >> itemID >> interactType >> timestamp;
@@ -541,8 +533,8 @@ void load_interaction_data( const char *filename )
         pInterRec = std::make_shared< InteractionRecord >
                            (pUser, pItem, interactType, timestamp);
         g_InteractStore->add( pInterRec );
-        pUser->addInteraction( pInterRec );
-        pItem->addInteraction( pInterRec );
+        pUser->addInteraction( pInterRec.get() );
+        pItem->addInteraction( pInterRec.get() );
     }; // end processLine
 
     boost::thread_group thrgroup;
@@ -660,7 +652,7 @@ void recommend_with_UserCF_OpenMP( uint32_t k, const char *filename )
     auto process = [&]( const TestDataSet::value_type &v ) {
         uint32_t                 uID = v.first;
         const std::set<uint32_t> &testItemSet = v.second;
-        User_sptr                pUser;
+        User                     *pUser = NULL;
 
         if ( !g_pUserDB->queryUser(uID, pUser) ) {
             LOG(INFO) << "No user " << uID << " found in user database.";
@@ -734,7 +726,7 @@ void recommend_with_UserCF_mt( uint32_t k, const char *filename )
             ++it;
             itlck.unlock();
 
-            User_sptr                pUser;
+            User                *pUser = NULL;
             if ( !g_pUserDB->queryUser(uID, pUser) ) {
                 LOG(INFO) << "No user " << uID << " found in user database.";
                 continue;
@@ -791,7 +783,7 @@ void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
         User_sptr pUser;
         pUser.reset( new User );
         pUser->ID() = 1000;
-        ItemCF( pUser, k, RECALL_SIZE, rcmd );
+        ItemCF( pUser.get(), k, RECALL_SIZE, rcmd );
     }
 }
 
@@ -834,8 +826,8 @@ void gen_join_data( const char *filename )
     ofstream ofs( filename, ios::out );
     ofs << "user_id\tuser_career_level\titem_id\titem_career_level\tinteraction_type\tcreated_at" << endl;
     for ( const auto &p : interacts ) {
-        User_csptr pUser = p->user();
-        Item_csptr pItem = p->item();
+        User* pUser = p->user();
+        Item* pItem = p->item();
         ofs << pUser->ID() << "\t" << pUser->careerLevel() << "\t";
         ofs << pItem->ID() << "\t" << pItem->careerLevel() << "\t";
         ofs << p->type() << "\t" << p->time() << endl;
@@ -862,9 +854,9 @@ int main( int argc, char **argv )
         load_item_data( "data/items.csv" );
 
         cout << "Loading interaction data..." << endl;
-        load_interaction_data( "data/interactions.csv" );
+        load_interaction_data( "data/interactions_train.csv" );
         print_data_info();
-        gen_join_data( "data/join.csv" );
+        // gen_join_data( "data/join.csv" );
         cout << "Loading test data..." << endl;
         load_test_data( "data/interactions_test.csv" );
         cout << g_TestData.size() << " users for test." << endl;
@@ -877,8 +869,8 @@ int main( int argc, char **argv )
         time_t now = time(0);
         cout << ctime(&now) << endl;
         // recommend_with_UserCF_OpenMP( k, "rcmd_result.txt" );
-        // recommend_with_UserCF_mt( k, "rcmd_result.txt" );
-        recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
+        recommend_with_UserCF_mt( k, "rcmd_result.txt" );
+        // recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
         cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;
@@ -897,7 +889,7 @@ void print_user_info( uint32_t id )
 {
     using namespace std;
 
-    User_sptr pUser;
+    User *pUser = NULL;
     bool result = g_pUserDB->queryUser( id, pUser );
     if( result )
         cout << *pUser << endl;
@@ -910,7 +902,7 @@ void print_item_info( uint32_t id )
 {
     using namespace std;
 
-    Item_sptr pItem;
+    Item *pItem = NULL;
     bool result = g_pItemDB->queryItem( id, pItem );
     if( result )
         cout << *pItem << endl;
@@ -973,7 +965,7 @@ void handle_command()
         else if ( "usercf" == cmd ) {
             int k, nItems;
             str >> k >> nItems;
-            User_sptr pUser;
+            User *pUser = NULL;
             if ( !g_pUserDB->queryUser(id, pUser) ) {
                 cout << "Cannot find user " << id << endl;
                 continue;

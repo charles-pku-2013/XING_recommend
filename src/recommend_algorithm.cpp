@@ -5,7 +5,7 @@
 #include <glog/logging.h>
 
 
-std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems, 
+std::size_t UserCF( User *user, std::size_t k, std::size_t nItems, 
                     std::vector<RcmdItem> &rcmdItems )
 {
     using namespace std;
@@ -20,12 +20,11 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     if (!k)
         err_ret(0, "Invalid k value!");
 
-    typedef std::map<User_sptr, float, UserPtrCmp>  UserSimMap;
+    typedef std::map<User*, float, UserPtrCmp>  UserSimMap;
 
     // first, find all items that "user" has positive interactions.
     // 找出目标用户u所有的兴趣物品集合N(u).
-    ItemSet     setNu;
-    user->interestedItems( setNu );
+    ItemSet &setNu = user->interestedItemSet();
     if (!setNu.size()) {
         LOG(INFO) << "Target user " << user->ID() << " do not have histroy interests record, cannot recommend!";
         return 0;
@@ -45,11 +44,10 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
     UserSimMap wuv;
 
     // 对N(u)中的每一个物品 i∈N(u), 找出i的兴趣用户集合N(i)
-    for (const Item_sptr &itemI : setNu) {
-        UserSet setNi;
-        itemI->interestedByUsers( setNi );
+    for (Item *itemI : setNu) {
+        UserSet &setNi = itemI->interestedUserSet();
         // LOG(INFO) << "item " << itemI->ID() << " liked by " << setNi.size() << " users";
-        for (const User_sptr &userV : setNi) {
+        for (User *userV : setNi) {
             if (userV->ID() == user->ID())
                 continue;
             wuv[userV] += 1.0 / std::log(1.0 + setNi.size());
@@ -58,19 +56,18 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
 
     // 利用上一步结果计算用户u和v相似度 wuv.
     for (auto &v : wuv) {
-        ItemSet                   setNv;
-        v.first->interestedItems( setNv );
+        ItemSet &setNv = v.first->interestedItemSet();
         // setNv.size() 肯定不为0
         v.second /= std::sqrt( (float)(setNu.size()) * setNv.size() );
     } // for
 
     // 从和目标用户u有相似度的用户集合v∈N(i)中(wuv != 0)找出前K个最相似的用户S(u,K)
     //!! 不可以直接用 map::value_type, 其pair.first是const
-    typedef std::pair< User_sptr, float > UserSimPair;
+    typedef std::pair< User*, float > UserSimPair;
     std::vector<UserSimPair> userSimValue( wuv.begin(), wuv.end() );
 
     auto userSimValueCmp = [] ( const UserSimPair &lhs,
-                             const UserSimPair &rhs )->bool
+                                const UserSimPair &rhs )->bool
                         { return lhs.second > rhs.second; };
 
     if (k < userSimValue.size()) {
@@ -87,15 +84,14 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
  * 对于物品 i∈N(v), 若i不在目标用户user的兴趣物品列表中，
  * 则物品i对目标用户user的推荐程度 p(u,i) += wuv * rvi (这里rvi恒为1)
  */
-    typedef std::map<Item_sptr, float, ItemPtrCmp> RcmdItemMap;
+    typedef std::map<Item*, float, ItemPtrCmp> RcmdItemMap;
     RcmdItemMap rcmdItemMap;
 
     for (auto it = userSimValue.begin(); it != userSimValue.end(); ++it) {
-        User_sptr userV = it->first;
-        ItemSet setNv;
-        userV->interestedItems( setNv );
+        User *userV = it->first;
+        ItemSet &setNv = userV->interestedItemSet();
         // 求setNu与setNv的差 setNv - setNu  Nv有但Nu没有
-        std::vector<Item_sptr> uvDiff;
+        std::vector<Item*> uvDiff;
         std::set_difference( setNv.begin(), setNv.end(),
                              setNu.begin(), setNu.end(),
                              std::back_inserter(uvDiff),
@@ -128,7 +124,7 @@ std::size_t UserCF( const User_sptr &user, std::size_t k, std::size_t nItems,
 
 bool g_bDoneItemSimilarity = false;
 static void get_all_items_similarity();
-std::size_t ItemCF( const User_sptr &user, std::size_t k, std::size_t nItems,
+std::size_t ItemCF( const User *user, std::size_t k, std::size_t nItems,
                     std::vector<RcmdItem> &rcmdItems )
 {
     using namespace std;
@@ -158,14 +154,14 @@ void get_all_items_similarity()
     // cout << "get_all_items_similarity start" << endl;
 
     size_t nItems = g_pItemDB->size();
-    vector<Item_sptr> allItems;
+    vector<Item*> allItems;
     allItems.reserve(nItems);
 
     const auto &itemDbContent = g_pItemDB->content();
     for (uint32_t i = 0; i != ItemDB::HASH_SIZE; ++i) {
         const auto &elem = itemDbContent[i];
         for (const auto &v : elem)
-            allItems.push_back( v.second );
+            allItems.push_back( v.second.get() );
     } // for i
 
     cout << allItems.size() << endl;

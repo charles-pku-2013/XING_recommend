@@ -38,15 +38,15 @@ class InteractionRecord;
 
 typedef std::shared_ptr<Item>       Item_sptr;
 typedef std::shared_ptr<const Item> Item_csptr;
-typedef std::weak_ptr<Item>         Item_wptr;
-typedef std::weak_ptr<const Item>   Item_cwptr;
+// typedef std::weak_ptr<Item>         Item_wptr;
+// typedef std::weak_ptr<const Item>   Item_cwptr;
 typedef std::shared_ptr<User>       User_sptr;
 typedef std::shared_ptr<const User> User_csptr;
-typedef std::weak_ptr<User>         User_wptr;
-typedef std::weak_ptr<const User>   User_cwptr;
+// typedef std::weak_ptr<User>         User_wptr;
+// typedef std::weak_ptr<const User>   User_cwptr;
 
 struct RcmdItem {
-    Item_csptr    pItem;
+    Item          *pItem;
     float         weight;
 
     bool operator < (const RcmdItem &rhs) const 
@@ -79,36 +79,36 @@ enum InteractionType {
 // extern const char *EDU_DEGREE_TEXT[];
 
 struct ItemPtrCmp {
-    bool operator() (const Item_sptr &lhs, 
-                     const Item_sptr &rhs) const;
+    bool operator() (const Item *lhs, 
+                     const Item *rhs) const;
 };
 
 struct UserPtrCmp {
-    bool operator() (const User_sptr &lhs, 
-                     const User_sptr &rhs) const;
+    bool operator() (const User *lhs, 
+                     const User *rhs) const;
 };
 
-typedef std::set<Item_sptr, ItemPtrCmp, FAST_ALLOCATOR(Item_sptr)>   ItemSet;
-typedef std::set<User_sptr, UserPtrCmp, FAST_ALLOCATOR(User_sptr)>   UserSet;
+typedef std::set<Item*, ItemPtrCmp, FAST_ALLOCATOR(Item*)>   ItemSet;
+typedef std::set<User*, UserPtrCmp, FAST_ALLOCATOR(User*)>   UserSet;
 
 class InteractionRecord {
 public:
     InteractionRecord() {}
-    InteractionRecord( User_wptr pUser, Item_wptr pItem,
+    InteractionRecord( User *pUser, Item *pItem,
                     uint32_t type, const time_t &ts )
         : m_pUser(pUser), m_pItem(pItem), m_nType(type), m_tTime(ts)
     {}
 
-    User_sptr user()
-    { return User_sptr(m_pUser); }
-    User_csptr user() const
-    { return User_csptr(m_pUser); }
+    User* user()
+    { return m_pUser; }
+    const User* user() const
+    { return m_pUser; }
     uint32_t userID() const;
 
-    Item_sptr item()
-    { return Item_sptr(m_pItem); }
-    Item_csptr item() const
-    { return Item_csptr(m_pItem); }
+    Item* item()
+    { return m_pItem; }
+    const Item* item() const
+    { return m_pItem; }
     uint32_t itemID() const;
 
     uint32_t& type()
@@ -128,8 +128,8 @@ public:
     { s_allocator.deallocate( static_cast<InteractionRecord*>(p), 1 ); }
 
 private:
-    User_wptr       m_pUser;
-    Item_wptr       m_pItem;
+    User            *m_pUser;
+    Item            *m_pItem;
     uint32_t        m_nType;
     time_t          m_tTime;
 
@@ -142,10 +142,10 @@ private:
 
 typedef std::shared_ptr< InteractionRecord >       InteractionRecord_sptr;
 typedef std::shared_ptr< const InteractionRecord > InteractionRecord_csptr;
-typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
-typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
-typedef std::function<bool(const InteractionRecord_wptr&, const InteractionRecord_wptr&)>
-            InteractionRecordCmpFunc;    // for sorting interactions
+// typedef std::weak_ptr< InteractionRecord >         InteractionRecord_wptr;
+// typedef std::weak_ptr< const InteractionRecord >   InteractionRecord_cwptr;
+// typedef std::function<bool(const InteractionRecord*, const InteractionRecord*)>
+            // InteractionRecordCmpFunc;    // for sorting interactions
 
 class InteractionStore {
 public:
@@ -197,7 +197,7 @@ private:
 
 // below used by User and Item
 struct InteractionVector
-        : std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) >
+        : std::vector< InteractionRecord*, POOL_ALLOCATOR(InteractionRecord*) >
         , boost::basic_lockable_adapter< boost::mutex > {};
 // typedef std::vector< InteractionRecord_wptr, POOL_ALLOCATOR(InteractionRecord_wptr) > InteractionVector;
 typedef std::pair< uint32_t, InteractionVector > _InteractionMapValue;
@@ -211,7 +211,7 @@ typedef std::set< uint32_t, std::less<uint32_t>, FAST_ALLOCATOR(uint32_t) >  UIn
 typedef std::basic_string< char, std::char_traits<char>, POOL_ALLOCATOR(char) > String;
 
 
-class User {
+class User : public boost::basic_lockable_adapter< boost::mutex > {
 public:
     enum EDU_DEGREE {
         UNKNOWN,
@@ -291,7 +291,7 @@ public:
     void addEduFields( uint32_t id )
     { m_nsetEduFields.insert(id); }
 
-    void addInteraction( const InteractionRecord_sptr &p );
+    void addInteraction( InteractionRecord *p );
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
@@ -301,14 +301,17 @@ public:
     const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
 
-    std::size_t interestedItems( ItemSet &iSet );
-    std::size_t interestedItems( std::set<uint32_t> &idSet );
+    ItemSet& interestedItemSet( bool update = false );
+    std::set<uint32_t>& interestedItemIdSet( bool update = false );
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
 
     static void operator delete( void *p )
     { s_allocator.deallocate( static_cast<User*>(p), 1 ); }
+
+private:
+    void updateInterest();
 
 private:
     uint32_t                m_ID;
@@ -324,6 +327,8 @@ private:
     uint32_t                m_nEduDegree;
     UIntSet                 m_nsetEduFields;
     InteractionTable        m_InteractionTable;
+    ItemSet                 m_setInterestedItemPtrs;
+    std::set<uint32_t>      m_setInterestedItemIds;
 
     // not used memory op
     static void* operator new[]( std::size_t sz );
@@ -333,7 +338,7 @@ private:
 };
 
 
-class Item {
+class Item : public boost::basic_lockable_adapter< boost::mutex > {
 public:
     enum EMPLOYMENT_TYPE {
         UNKNOWN,
@@ -346,8 +351,8 @@ public:
     };
 
 // 相似度
-struct SimilarityTable : std::map<uint32_t, float>
-                       , boost::basic_lockable_adapter< boost::mutex > {};
+// struct SimilarityTable : std::map<uint32_t, float>
+                       // , boost::basic_lockable_adapter< boost::mutex > {};
 
 public:
     Item() : m_ID(0), m_nCareerLevel(0), m_DiscplineID(0), m_IndustryID(0)
@@ -426,7 +431,7 @@ public:
     void setActive( bool status = true )
     { m_bActive = status; }
 
-    void addInteraction( const InteractionRecord_sptr &p );
+    void addInteraction( InteractionRecord *p );
     InteractionTable& interactionTable()
     { return m_InteractionTable; }
     const InteractionTable& interactionTable() const
@@ -436,20 +441,23 @@ public:
     const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
 
-    std::size_t interestedByUsers( UserSet &uSet );
-    std::size_t interestedByUsers( std::set<uint32_t> &idSet );
+    UserSet& interestedUserSet( bool update = false );
+    std::set<uint32_t>& interestedUserIdSet( bool update = false );
 
     // 相似度
-    SimilarityTable& similarItems()
-    { return m_SimilarityTable; }
-    const SimilarityTable& similarItems() const
-    { return m_SimilarityTable; }
+    // SimilarityTable& similarItems()
+    // { return m_SimilarityTable; }
+    // const SimilarityTable& similarItems() const
+    // { return m_SimilarityTable; }
 
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
 
     static void operator delete( void *p )
     { s_allocator.deallocate( static_cast<Item*>(p), 1 ); }
+
+private:
+    void updateInterest();
 
 private:
     uint32_t                m_ID;
@@ -466,8 +474,10 @@ private:
     time_t                  m_tCreateTime;
     bool                    m_bActive;
     InteractionTable        m_InteractionTable;
+    UserSet                 m_setInterestedUserPtrs;
+    std::set<uint32_t>      m_setInterestedUserIds;
 
-    SimilarityTable         m_SimilarityTable;
+    // SimilarityTable         m_SimilarityTable;
 
     // not used memory op
     static void* operator new[]( std::size_t sz );
@@ -500,12 +510,12 @@ public:
 
     void addUser( const User_sptr &pUser );
 
-    bool queryUser( uint32_t id, User_sptr &pRet )
+    bool queryUser( uint32_t id, User *&pRet )
     {
         UserDBRecord &rec = m_UserDB[ id % HASH_SIZE ];
         auto it = rec.find( id );
         if( it != rec.end() ) {
-            pRet = it->second;
+            pRet = it->second.get();
             return true;
         } // if
         return false;
@@ -554,12 +564,12 @@ public:
 
     void addItem( const Item_sptr &pItem );
 
-    bool queryItem( uint32_t id, Item_sptr &pRet )
+    bool queryItem( uint32_t id, Item *&pRet )
     {
         ItemDBRecord &rec = m_ItemDB[ id % HASH_SIZE ];
         auto it = rec.find( id );
         if( it != rec.end() ) {
-            pRet = it->second;
+            pRet = it->second.get();
             return true;
         } // if
         return false;

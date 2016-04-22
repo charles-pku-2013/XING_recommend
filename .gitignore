@@ -9,7 +9,6 @@
 !*.cc
 !*.cpp
 !*.sh
-!*.txt
 !.gitignore
 !Makefile.*
 !compile.*

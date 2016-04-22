@@ -26,12 +26,12 @@ FAST_ALLOCATOR( Item )  Item::s_allocator;
  * };
  */
 
-bool ItemPtrCmp::operator() (const Item_sptr &lhs, 
-                             const Item_sptr &rhs) const
+bool ItemPtrCmp::operator() (const Item *lhs, 
+                             const Item *rhs) const
 { return lhs->ID() < rhs->ID(); };
 
-bool UserPtrCmp::operator() (const User_sptr &lhs, 
-        const User_sptr &rhs) const
+bool UserPtrCmp::operator() (const User *lhs, 
+                             const User *rhs) const
 { return lhs->ID() < rhs->ID(); };
 
 uint32_t InteractionRecord::userID() const
@@ -54,9 +54,9 @@ uint32_t InteractionRecord::itemID() const
  * }
  */
 
-void User::addInteraction( const InteractionRecord_sptr &p )
+void User::addInteraction( InteractionRecord *p )
 {
-    Item_sptr pItem = p->item();
+    Item *pItem = p->item();
     uint32_t  itemID = pItem->ID();
     InteractionMap& _map = m_InteractionTable[ p->type() ];
     boost::unique_lock< InteractionMap > lock(_map);
@@ -64,97 +64,90 @@ void User::addInteraction( const InteractionRecord_sptr &p )
     vec.push_back(p);
 }
 
-std::size_t User::interestedItems( ItemSet &iSet )
+ItemSet& User::interestedItemSet( bool update )
 {
-    std::size_t count = 0;
+    //!! double check
+    if (m_setInterestedItemPtrs.empty() || update) {
+        boost::unique_lock<User> lock(*this);
+        if (m_setInterestedItemPtrs.empty() || update)
+            updateInterest();
+    } // if
+    return m_setInterestedItemPtrs;
+}
 
-    iSet.clear();
+std::set<uint32_t>& User::interestedItemIdSet( bool update )
+{
+    if (m_setInterestedItemIds.empty() || update) {
+        boost::unique_lock<User> lock(*this);
+        if (m_setInterestedItemIds.empty() || update)    
+            updateInterest();
+    } // if
+    return m_setInterestedItemIds;
+}
+
+void User::updateInterest()
+{
+    m_setInterestedItemPtrs.clear();
+    m_setInterestedItemIds.clear();
+
     for (uint32_t i = CLICK; i != DELETE; ++i) {
         InteractionMap &iMap = this->interactionMap( i );
         if (iMap.empty())
             continue;
-        count += iMap.size();
         for (auto it = iMap.begin(); it != iMap.end(); ++it) {
             InteractionVector &vec = it->second;
             // assert( !vec.empty() );
-            InteractionRecord_sptr pInt( vec[0] );
-            Item_sptr pItem = pInt->item();
-            iSet.insert( pItem );
+            InteractionRecord *pInt = vec[0];
+            Item* pItem = pInt->item();
+            m_setInterestedItemPtrs.insert( pItem );
+            m_setInterestedItemIds.insert( pItem->ID() );
         } // for
     } // for
-
-    return count;
 }
 
-std::size_t User::interestedItems( std::set<uint32_t> &idSet )
+UserSet& Item::interestedUserSet( bool update )
 {
-    std::size_t count = 0;
+    if (m_setInterestedUserPtrs.empty() || update) {
+        boost::unique_lock<Item> lock(*this);
+        if (m_setInterestedUserPtrs.empty() || update)
+            updateInterest();
+    } // if
+    return m_setInterestedUserPtrs;
+}
 
-    idSet.clear();
+std::set<uint32_t>& Item::interestedUserIdSet( bool update )
+{
+    if (m_setInterestedUserIds.empty() || update) {
+        boost::unique_lock<Item> lock(*this);
+        if (m_setInterestedUserIds.empty() || update)
+            updateInterest();
+    } // if
+    return m_setInterestedUserIds;
+}
+
+void Item::updateInterest()
+{
+    m_setInterestedUserPtrs.clear();
+    m_setInterestedUserIds.clear();
+
     for (uint32_t i = CLICK; i != DELETE; ++i) {
         InteractionMap &iMap = this->interactionMap( i );
         if (iMap.empty())
             continue;
-        count += iMap.size();
         for (auto it = iMap.begin(); it != iMap.end(); ++it) {
             InteractionVector &vec = it->second;
             // assert( !vec.empty() );
-            InteractionRecord_sptr pInt( vec[0] );
-            Item_sptr pItem = pInt->item();
-            idSet.insert( pItem->ID() );
+            InteractionRecord *pInt = vec[0];
+            User *pUser = pInt->user();
+            m_setInterestedUserPtrs.insert( pUser );
+            m_setInterestedUserIds.insert( pUser->ID() );
         } // for
     } // for
-
-    return count;
 }
 
-std::size_t Item::interestedByUsers( UserSet &uSet )
+void Item::addInteraction( InteractionRecord *p )
 {
-    std::size_t count = 0;
-
-    uSet.clear();
-    for (uint32_t i = CLICK; i != DELETE; ++i) {
-        InteractionMap &iMap = this->interactionMap( i );
-        if (iMap.empty())
-            continue;
-        count += iMap.size();
-        for (auto it = iMap.begin(); it != iMap.end(); ++it) {
-            InteractionVector &vec = it->second;
-            // assert( !vec.empty() );
-            InteractionRecord_sptr pInt( vec[0] );
-            User_sptr pUser = pInt->user();
-            uSet.insert( pUser );
-        } // for
-    } // for
-
-    return count;
-}
-
-std::size_t Item::interestedByUsers( std::set<uint32_t> &idSet )
-{
-    std::size_t count = 0;
-
-    idSet.clear();
-    for (uint32_t i = CLICK; i != DELETE; ++i) {
-        InteractionMap &iMap = this->interactionMap( i );
-        if (iMap.empty())
-            continue;
-        count += iMap.size();
-        for (auto it = iMap.begin(); it != iMap.end(); ++it) {
-            InteractionVector &vec = it->second;
-            // assert( !vec.empty() );
-            InteractionRecord_sptr pInt( vec[0] );
-            User_sptr pUser = pInt->user();
-            idSet.insert( pUser->ID() );
-        } // for
-    } // for
-
-    return count;
-}
-
-void Item::addInteraction( const InteractionRecord_sptr &p )
-{
-    User_sptr pUser = p->user();
+    User *pUser = p->user();
     uint32_t  userID = pUser->ID();
     InteractionMap& _map = m_InteractionTable[ p->type() ];
     boost::unique_lock< InteractionMap > lock(_map);
