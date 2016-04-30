@@ -49,6 +49,10 @@ struct RcmdItem {
     Item          *pItem;
     float         weight;
 
+    RcmdItem() : pItem(NULL), weight(0.0) {}
+    RcmdItem( Item *_pItem, float _weight )
+               : pItem(_pItem), weight(_weight) {}
+
     bool operator < (const RcmdItem &rhs) const 
     { return (weight > rhs.weight); }
 };
@@ -350,9 +354,43 @@ public:
         N_EMPLOYMENT_TYPE
     };
 
-// 相似度
-// struct SimilarityTable : std::map<uint32_t, float>
-                       // , boost::basic_lockable_adapter< boost::mutex > {};
+public:
+    struct SimilarItem {
+        Item *pOther;
+        float similarity;
+
+        SimilarItem() : pOther(NULL), similarity(0.0) {}
+        SimilarItem( Item *_other, float _similarity ) 
+                : pOther(_other), similarity(_similarity) {}
+
+        bool operator < (const SimilarItem &rhs) const 
+        { return similarity > rhs.similarity; }
+    };
+
+    void addSimilarItem( Item *pItem, float similarity, std::size_t nItems )
+    {
+        SimilarItem sItem(pItem, similarity);
+
+        if (m_arrSimilarItems.size() < nItems) {
+            if (m_arrSimilarItems.empty()) {
+                m_arrSimilarItems.push_back( sItem );
+            } else {
+                auto it = lower_bound(m_arrSimilarItems.begin(), m_arrSimilarItems.end(), sItem);
+                m_arrSimilarItems.insert(it, sItem);
+            } // if empty
+        } else {
+            if (sItem.similarity > m_arrSimilarItems.back().similarity) {
+                m_arrSimilarItems.pop_back();
+                auto it = lower_bound(m_arrSimilarItems.begin(), m_arrSimilarItems.end(), sItem);
+                m_arrSimilarItems.insert(it, sItem);
+            } // if
+        } // if size
+    }
+
+    std::vector<SimilarItem>& similarItems()
+    { return m_arrSimilarItems; }
+    const std::vector<SimilarItem>& similarItems() const
+    { return m_arrSimilarItems; }
 
 public:
     Item() : m_ID(0), m_nCareerLevel(0), m_DiscplineID(0), m_IndustryID(0)
@@ -444,12 +482,6 @@ public:
     UserSet& interestedUserSet( bool update = false );
     std::set<uint32_t>& interestedUserIdSet( bool update = false );
 
-    // 相似度
-    // SimilarityTable& similarItems()
-    // { return m_SimilarityTable; }
-    // const SimilarityTable& similarItems() const
-    // { return m_SimilarityTable; }
-
     static void* operator new( std::size_t sz )
     { return s_allocator.allocate( 1 ); }
 
@@ -476,8 +508,7 @@ private:
     InteractionTable        m_InteractionTable;
     UserSet                 m_setInterestedUserPtrs;
     std::set<uint32_t>      m_setInterestedUserIds;
-
-    // SimilarityTable         m_SimilarityTable;
+    std::vector<SimilarItem> m_arrSimilarItems;
 
     // not used memory op
     static void* operator new[]( std::size_t sz );

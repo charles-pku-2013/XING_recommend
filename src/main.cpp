@@ -778,13 +778,74 @@ void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
     using namespace std;
 
     // test 
+    /*
+     * {
+     *     vector<RcmdItem> rcmd;
+     *     User_sptr pUser;
+     *     pUser.reset( new User );
+     *     pUser->ID() = 1000;
+     *     ItemCF( pUser.get(), k, RECALL_SIZE, rcmd );
+     * }
+     */
+
+    float score = 0.0;
+
+    ofstream ofs(filename, ios::out);
+    if (!ofs) {
+        cerr << "Cannot open " << filename << " for writting!" << endl;
+        return;
+    } // if
+
+    ofs << "UserID\tN_Correct\tPrecisionAt2\tPrecisionAt4\tPrecisionAt6\tPrecisionAt20\tPrecisionAt30\tRecall\tRecommendedItems" << endl;
+
+    auto process = [&]( const TestDataSet::value_type &v ) {
+        uint32_t                 uID = v.first;
+        const std::set<uint32_t> &testItemSet = v.second;
+        User                     *pUser = NULL;
+
+        if ( !g_pUserDB->queryUser(uID, pUser) ) {
+            LOG(INFO) << "No user " << uID << " found in user database.";
+            return;
+        } // if
+
+        std::vector<RcmdItem> rcmdItems;
+        ItemCF( pUser, k, RECALL_SIZE, rcmdItems );
+        if (rcmdItems.empty()) {
+            LOG(INFO) << "No item recommended to user " << uID;
+            return;
+        } // if
+
+        std::vector<uint32_t> rItemIds( rcmdItems.size() );
+        for (std::size_t i = 0; i != rcmdItems.size(); ++i)
+            rItemIds[i] = rcmdItems[i].pItem->ID();
+        uint32_t nCorrect;
+        float precision2, precision4, precision6, precision20, precision30, fRecall;
+        float localScore = score_one( rItemIds, testItemSet, nCorrect,
+                precision2, precision4, precision6, precision20, precision30, fRecall );
+#pragma omp critical
+        {
+            score += localScore;
+            ofs << std::setprecision(3) << uID << "\t" << nCorrect << "\t" 
+                               << precision2 << "\t" << precision4 << "\t" 
+                               << precision6 << "\t" << precision20 << "\t"
+                               << precision30 << "\t" << fRecall << "\t";
+            for (auto rit = rcmdItems.begin(); rit != rcmdItems.end()-1; ++rit)
+                ofs << rit->pItem->ID() << ":" << rit->weight << ",";
+            ofs << rcmdItems.back().pItem->ID() << ":" << rcmdItems.back().weight << endl;
+        } // omp critical
+    };
+
+    // TODO cannot run on mac, use pointers instead
+#pragma omp parallel
+#pragma omp single
     {
-        vector<RcmdItem> rcmd;
-        User_sptr pUser;
-        pUser.reset( new User );
-        pUser->ID() = 1000;
-        ItemCF( pUser.get(), k, RECALL_SIZE, rcmd );
-    }
+    for (auto it = g_TestData.begin(); it != g_TestData.end(); ++it)
+#pragma omp task firstprivate(it)
+        process(*it);
+#pragma omp taskwait
+    } // omp single
+
+    cout << "Total score: " << score << endl;
 }
 
 static
@@ -824,13 +885,24 @@ void gen_join_data( const char *filename )
     cout << "All " << interacts.size() << " interaction records." << endl;
 
     ofstream ofs( filename, ios::out );
-    ofs << "user_id\tuser_career_level\titem_id\titem_career_level\tinteraction_type\tcreated_at" << endl;
+    // ofs << "user_id\tuser_career_level\titem_id\titem_career_level\tinteraction_type\tcreated_at" << endl;
+    ofs << "user_id\titem_id\tinteraction_type\tuser_career_level"
+        << "\titem_career_level\tuser_discipline_id\titem_discipline_id"
+        << "\tuser_industry_id\titem_industry_id\tuser_country"
+        << "\titem_country\tuser_region\titem_region\tcreated_at" << endl;
     for ( const auto &p : interacts ) {
         User* pUser = p->user();
         Item* pItem = p->item();
-        ofs << pUser->ID() << "\t" << pUser->careerLevel() << "\t";
-        ofs << pItem->ID() << "\t" << pItem->careerLevel() << "\t";
-        ofs << p->type() << "\t" << p->time() << endl;
+        ofs << pUser->ID() << "\t" << pItem->ID() << "\t" << p->type()
+            << "\t" << pUser->careerLevel() << "\t" << pItem->careerLevel()
+            << "\t" << pUser->discplineID() << "\t" << pItem->discplineID()
+            << "\t" << pUser->industryID() << "\t" << pItem->industryID()
+            << "\t" << pUser->country() << "\t" << pItem->country()
+            << "\t" << pUser->region() << "\t" << pItem->region()
+            << "\t" << p->time() << endl;
+        // ofs << pUser->ID() << "\t" << pUser->careerLevel() << "\t";
+        // ofs << pItem->ID() << "\t" << pItem->careerLevel() << "\t";
+        // ofs << p->type() << "\t" << p->time() << endl;
     } // for
 
     cout << "gen_join_data done!" << endl;
@@ -856,21 +928,21 @@ int main( int argc, char **argv )
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "data/interactions_train.csv" );
         print_data_info();
-        // gen_join_data( "data/join.csv" );
+        gen_join_data( "data/join.csv" );
         cout << "Loading test data..." << endl;
         load_test_data( "data/interactions_test.csv" );
         cout << g_TestData.size() << " users for test." << endl;
         // gen_small_dataset( 80000, 100000 );
         // handle_command();
-        cout << "Input k for usercf:" << endl;
+        cout << "Input k for usercf / itemcf:" << endl;
         int k;
         cin >> k;
         cout << "Processing recommendation..." << endl;
         time_t now = time(0);
         cout << ctime(&now) << endl;
         // recommend_with_UserCF_OpenMP( k, "rcmd_result.txt" );
-        recommend_with_UserCF_mt( k, "rcmd_result.txt" );
-        // recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
+        // recommend_with_UserCF_mt( k, "rcmd_result.txt" );
+        recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
         cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;

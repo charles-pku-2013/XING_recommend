@@ -2,6 +2,7 @@
 #include <cmath>
 #include <functional>
 #include <algorithm>
+#include <mutex>
 #include <glog/logging.h>
 
 
@@ -122,12 +123,13 @@ std::size_t UserCF( User *user, std::size_t k, std::size_t nItems,
 }
 
 
-bool g_bDoneItemSimilarity = false;
-static void get_all_items_similarity();
-std::size_t ItemCF( const User *user, std::size_t k, std::size_t nItems,
+static void get_all_items_similarity(std::size_t);
+std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
                     std::vector<RcmdItem> &rcmdItems )
 {
     using namespace std;
+
+    static std::once_flag onceFlag;
 
     auto err_ret = [](int retval, const char *msg) {
         cerr << msg << endl;
@@ -139,23 +141,50 @@ std::size_t ItemCF( const User *user, std::size_t k, std::size_t nItems,
     if (!k)
         err_ret(0, "Invalid k value!");
 
-    if (!g_bDoneItemSimilarity) {
-        get_all_items_similarity();
-        g_bDoneItemSimilarity = true;
+    std::call_once(onceFlag, get_all_items_similarity, k);
+
+    ItemSet& interestedItems = user->interestedItemSet();
+    if (interestedItems.empty()) {
+        LOG(INFO) << "Target user " << user->ID() << " do not have histroy interests record, cannot recommend!";
+        return 0;
+    } // if
+
+    std::map<Item*, float, ItemPtrCmp> rankMap;
+    for (Item *pItemI : interestedItems) {
+        auto& similarItems = pItemI->similarItems();
+        for (auto &sItemJ : similarItems) {
+            if (interestedItems.find(sItemJ.pOther) != interestedItems.end())
+                continue;
+            rankMap[sItemJ.pOther] += sItemJ.similarity; 
+        } // for j
+    } // for i
+
+    rcmdItems.reserve( rankMap.size() );
+    for (auto &v : rankMap)
+        rcmdItems.push_back( RcmdItem(v.first, v.second) );
+
+    // sort and resize to nItems
+    if (nItems < rcmdItems.size()) {
+        std::partial_sort( rcmdItems.begin(), rcmdItems.begin() + nItems,
+                           rcmdItems.end() );
+        rcmdItems.resize( nItems );
+    } else {
+        std::sort( rcmdItems.begin(), rcmdItems.end() );
     } // if
 
     return rcmdItems.size();
 }
 
 static
-void get_all_items_similarity()
+void get_all_items_similarity( std::size_t k )
 {
     using namespace std;
-    // cout << "get_all_items_similarity start" << endl;
+    
+    LOG(INFO) << "get_all_items_similarity start...";
 
-    size_t nItems = g_pItemDB->size();
+    size_t nAllItems = g_pItemDB->size();
     vector<Item*> allItems;
-    allItems.reserve(nItems);
+    allItems.reserve(nAllItems);
 
     const auto &itemDbContent = g_pItemDB->content();
     for (uint32_t i = 0; i != ItemDB::HASH_SIZE; ++i) {
@@ -164,9 +193,47 @@ void get_all_items_similarity()
             allItems.push_back( v.second.get() );
     } // for i
 
-    cout << allItems.size() << endl;
-    cout << g_pItemDB->size() << endl;
+    // cout << allItems.size() << endl;
+    // cout << g_pItemDB->size() << endl;
     // cout << "get_all_items_similarity done!" << endl;
+
+    auto get_item_similarity = []( Item *pItemI, Item *pItemJ )->float {
+        UserSet& Ni = pItemI->interestedUserSet();
+        UserSet& Nj = pItemJ->interestedUserSet();
+        vector<User*> Nij;
+        Nij.reserve(Ni.size());
+        set_intersection( Ni.begin(), Ni.end(), Nj.begin(), Nj.end(),
+                          back_inserter(Nij) );
+
+        if (Nij.empty())
+            return 0.0;
+
+        float similarity = 0.0;
+        for (User *u : Nij) {
+            size_t sz = u->interestedItemSet().size();
+            if (!sz) 
+                continue;
+            similarity += 1.0 / std::log(1.0 + (float)(sz));
+        } // for
+
+        similarity /= std::sqrt( (float)(Ni.size() * Nj.size()) );
+
+        return similarity;
+    };
+
+#pragma omp parallel for
+    for (size_t i = 0; i < nAllItems-1; ++i) {
+#pragma omp parallel for
+        for (size_t j = i+1; j < nAllItems; ++j) {
+            float similarity = get_item_similarity( allItems[i], allItems[j] );
+            allItems[i]->addSimilarItem( allItems[j], similarity, k );
+            allItems[j]->addSimilarItem( allItems[i], similarity, k );
+        } // for j
+    } // for i
+
+    LOG(INFO) << "get_all_items_similarity done!";
+
+    return;
 }
 
 
