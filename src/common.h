@@ -15,7 +15,7 @@
 #include <functional>
 #include <ctime>
 #include <cmath>
-#include <boost/pool/pool_alloc.hpp>
+// #include <boost/pool/pool_alloc.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/lockable_adapter.hpp>
 
@@ -367,10 +367,15 @@ public:
         { return similarity > rhs.similarity; }
     };
 
+    struct SimilarItemArray : std::vector<SimilarItem>
+                            , boost::basic_lockable_adapter<boost::mutex>
+    {};
+
     void addSimilarItem( Item *pItem, float similarity, std::size_t nItems )
     {
         SimilarItem sItem(pItem, similarity);
 
+        boost::unique_lock<SimilarItemArray> lock(m_arrSimilarItems);
         if (m_arrSimilarItems.size() < nItems) {
             if (m_arrSimilarItems.empty()) {
                 m_arrSimilarItems.push_back( sItem );
@@ -387,9 +392,9 @@ public:
         } // if size
     }
 
-    std::vector<SimilarItem>& similarItems()
+    SimilarItemArray& similarItems()
     { return m_arrSimilarItems; }
-    const std::vector<SimilarItem>& similarItems() const
+    const SimilarItemArray& similarItems() const
     { return m_arrSimilarItems; }
 
 public:
@@ -508,7 +513,7 @@ private:
     InteractionTable        m_InteractionTable;
     UserSet                 m_setInterestedUserPtrs;
     std::set<uint32_t>      m_setInterestedUserIds;
-    std::vector<SimilarItem> m_arrSimilarItems;
+    SimilarItemArray        m_arrSimilarItems;
 
     // not used memory op
     static void* operator new[]( std::size_t sz );

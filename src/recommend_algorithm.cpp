@@ -123,11 +123,12 @@ std::size_t UserCF( User *user, std::size_t k, std::size_t nItems,
 }
 
 
-static void get_all_items_similarity(std::size_t);
 std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
                     std::vector<RcmdItem> &rcmdItems )
 {
     using namespace std;
+
+    LOG(INFO) << "Doing recommend for user: " << user->ID();
 
     static std::once_flag onceFlag;
 
@@ -141,7 +142,7 @@ std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
     if (!k)
         err_ret(0, "Invalid k value!");
 
-    std::call_once(onceFlag, get_all_items_similarity, k);
+    // std::call_once(onceFlag, get_all_items_similarity, k);
 
     ItemSet& interestedItems = user->interestedItemSet();
     if (interestedItems.empty()) {
@@ -175,10 +176,18 @@ std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
     return rcmdItems.size();
 }
 
-static
+
 void get_all_items_similarity( std::size_t k )
 {
     using namespace std;
+
+    auto err_ret = [](int retval, const char *msg) {
+        cerr << msg << endl;
+        return retval;
+    };
+
+    if (!k)
+        err_ret(0, "Invalid k value!");
     
     LOG(INFO) << "get_all_items_similarity start...";
 
@@ -225,6 +234,7 @@ void get_all_items_similarity( std::size_t k )
     for (size_t i = 0; i < nAllItems-1; ++i) {
 #pragma omp parallel for
         for (size_t j = i+1; j < nAllItems; ++j) {
+            LOG(INFO) << "computing similarity between " << i << " and " << j;
             float similarity = get_item_similarity( allItems[i], allItems[j] );
             allItems[i]->addSimilarItem( allItems[j], similarity, k );
             allItems[j]->addSimilarItem( allItems[i], similarity, k );

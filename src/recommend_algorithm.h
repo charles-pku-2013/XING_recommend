@@ -16,6 +16,7 @@ extern std::size_t UserCF( User *user, std::size_t k, std::size_t nItems,
                            std::vector<RcmdItem> &rcmdItems );
 
 
+extern void get_all_items_similarity(std::size_t);
 extern std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
                            std::vector<RcmdItem> &rcmdItems );
 

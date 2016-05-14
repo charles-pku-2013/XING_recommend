@@ -777,17 +777,6 @@ void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
 {
     using namespace std;
 
-    // test 
-    /*
-     * {
-     *     vector<RcmdItem> rcmd;
-     *     User_sptr pUser;
-     *     pUser.reset( new User );
-     *     pUser->ID() = 1000;
-     *     ItemCF( pUser.get(), k, RECALL_SIZE, rcmd );
-     * }
-     */
-
     float score = 0.0;
 
     ofstream ofs(filename, ios::out);
@@ -835,7 +824,10 @@ void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
         } // omp critical
     };
 
-    // TODO cannot run on mac, use pointers instead
+    cout << "Getting all items similarities..." << endl;
+    get_all_items_similarity( k );
+    cout << "Getting all items similarities done!" << endl;
+
 #pragma omp parallel
 #pragma omp single
     {
@@ -928,21 +920,21 @@ int main( int argc, char **argv )
         cout << "Loading interaction data..." << endl;
         load_interaction_data( "data/interactions_train.csv" );
         print_data_info();
-        gen_join_data( "data/join.csv" );
+        // gen_join_data( "data/join.csv" );
         cout << "Loading test data..." << endl;
         load_test_data( "data/interactions_test.csv" );
         cout << g_TestData.size() << " users for test." << endl;
         // gen_small_dataset( 80000, 100000 );
         // handle_command();
         cout << "Input k for usercf / itemcf:" << endl;
-        int k;
-        cin >> k;
+        // int k;
+        // cin >> k;
         cout << "Processing recommendation..." << endl;
         time_t now = time(0);
         cout << ctime(&now) << endl;
         // recommend_with_UserCF_OpenMP( k, "rcmd_result.txt" );
         // recommend_with_UserCF_mt( k, "rcmd_result.txt" );
-        recommend_with_ItemCF_OpenMP( k, "rcmd_result.txt" );
+        recommend_with_ItemCF_OpenMP( 30, "rcmd_result.txt" );
         cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;
