@@ -218,6 +218,24 @@ void ItemDB::addItem( const Item_sptr &pItem )
         // LOG(WARNING) << errstr;
 }
 
+float get_factor(std::size_t n)
+{
+    static const uint32_t SIZE = 1000;
+    static std::vector<float> values;
+    static std::once_flag onceFlag;
+
+    std::call_once(onceFlag, []{
+        values.resize(SIZE + 1);
+        for (std::size_t i = 1; i <= SIZE; ++i)
+            values[i] = 1.0 / std::log(1.0 + i);
+    });
+
+    if (n <= SIZE)
+        return values[n];
+
+    return (1.0 / std::log(1.0 + n));
+}
+
 /*
  * void ItemDB::sortInteractionsThreadFunc( uint32_t &index, boost::mutex &mtx,
  *                                     const InteractionRecordCmpFunc &cmp )

@@ -18,6 +18,7 @@
 // #include <boost/pool/pool_alloc.hpp>
 #include <boost/thread.hpp>
 #include <boost/thread/lockable_adapter.hpp>
+#include "thread_pool.hpp"
 
 /*
  * About the allocator usage:
@@ -638,6 +639,7 @@ extern uint32_t                         g_nMaxUserID;
 extern uint32_t                         g_nMaxItemID;
 extern uint32_t                         g_nMaxThread;
 
+extern float get_factor(std::size_t n);
 
 template < typename T >
 bool read_from_string( const char *s, T &value )

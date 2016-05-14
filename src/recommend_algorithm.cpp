@@ -1,5 +1,4 @@
 #include "recommend_algorithm.h"
-#include <cmath>
 #include <functional>
 #include <algorithm>
 #include <mutex>
@@ -130,7 +129,7 @@ std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
 
     LOG(INFO) << "Doing recommend for user: " << user->ID();
 
-    static std::once_flag onceFlag;
+    // static std::once_flag onceFlag;
 
     auto err_ret = [](int retval, const char *msg) {
         cerr << msg << endl;
@@ -222,7 +221,7 @@ void get_all_items_similarity( std::size_t k )
             size_t sz = u->interestedItemSet().size();
             if (!sz) 
                 continue;
-            similarity += 1.0 / std::log(1.0 + (float)(sz));
+            similarity += get_factor(sz);
         } // for
 
         similarity /= std::sqrt( (float)(Ni.size() * Nj.size()) );
@@ -230,16 +229,42 @@ void get_all_items_similarity( std::size_t k )
         return similarity;
     };
 
-#pragma omp parallel for
+    // struct SimilarityJob {
+        // SimilarityJob( size_t _i, size_t _j )
+                // : i(_i), j(_j) {}
+        // size_t i, j;
+    // };
+    
+    auto similarityJob = [&](size_t i, size_t j) {
+        float similarity = get_item_similarity( allItems[i], allItems[j] );
+        allItems[i]->addSimilarItem( allItems[j], similarity, k );
+        allItems[j]->addSimilarItem( allItems[i], similarity, k );
+    };
+
+    typedef std::function<void(void)>   JobType;
+    ThreadPool<JobType> thrpool( g_nMaxThread );
+
     for (size_t i = 0; i < nAllItems-1; ++i) {
-#pragma omp parallel for
         for (size_t j = i+1; j < nAllItems; ++j) {
-            LOG(INFO) << "computing similarity between " << i << " and " << j;
-            float similarity = get_item_similarity( allItems[i], allItems[j] );
-            allItems[i]->addSimilarItem( allItems[j], similarity, k );
-            allItems[j]->addSimilarItem( allItems[i], similarity, k );
+            thrpool.addJob( std::bind(similarityJob, i, j) );
+            // auto similarityJob = ;
         } // for j
     } // for i
+
+    thrpool.terminate();
+
+/*
+ * #pragma omp parallel for
+ *     for (size_t i = 0; i < nAllItems-1; ++i) {
+ * #pragma omp parallel for
+ *         for (size_t j = i+1; j < nAllItems; ++j) {
+ *             // LOG(INFO) << "computing similarity between " << i << " and " << j;
+ *             float similarity = get_item_similarity( allItems[i], allItems[j] );
+ *             allItems[i]->addSimilarItem( allItems[j], similarity, k );
+ *             allItems[j]->addSimilarItem( allItems[i], similarity, k );
+ *         } // for j
+ *     } // for i
+ */
 
     LOG(INFO) << "get_all_items_similarity done!";
 
