@@ -1,3 +1,7 @@
+/*
+ * GLOG_log_dir="." ./xing.bin
+ * 暂不用考虑OpenMP版本的算法实现
+ */
 #include "common.h"
 #include "recommend_algorithm.h"
 #include <glog/logging.h>
@@ -30,6 +34,7 @@ static void print_data_info();
 static void test();
 static void test1();
 
+// 以下是打印 User Item Interaction 等类型数据， 用于测试
 namespace std {
     ostream& operator << ( ostream &os, const User &user )
     {
@@ -210,6 +215,7 @@ namespace std {
 } // namespace std
 
 
+// 将字符串中的一系列 uint 数据，逗号分隔，读入到set集合中
 static
 bool read_uint_set( char *str, UIntSet &uintSet )
 {
@@ -228,6 +234,16 @@ bool read_uint_set( char *str, UIntSet &uintSet )
 /*
  * processLine 或者用值传入，或者用 const ref 传入，
  * 但不可以用普通引用传入。
+ */
+/**
+ * @brief 用于多线程读入数据文件的线程函数
+ *
+ * @param inFile        数据文件对象
+ * @param fileMtx       访问inFile的互斥锁
+ * @param BATCH_SIZE    一次读入的行数
+ * @param lineno        用于记录行号，传入之前设为0
+ * @param processLine   处理读入行的回调函数，因数据文件而异，比如读入users.csv，
+ *                      processLine 应该是根据读入行文本建立新的User信息并存入数据库
  */
 static
 void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
@@ -260,6 +276,7 @@ void load_file_thread_routine( std::ifstream &inFile, boost::mutex &fileMtx,
     return;
 }
 
+// 加载 users.csv
 static
 void load_user_data( const char *filename )
 {
@@ -279,6 +296,7 @@ void load_user_data( const char *filename )
     if( !inFile )
         throw runtime_error( "Invalid user data format!" );
 
+    // 从行文本中读入User信息并创建User
     auto processLine = []( string &line, uint32_t lineCount ) {
         char *pField = NULL, *saveEnd1 = NULL; // for strtok_r
         char errstr[128];
@@ -360,6 +378,7 @@ void load_user_data( const char *filename )
         g_nMaxUserID = pUser->ID() > g_nMaxUserID ? pUser->ID() : g_nMaxUserID;
     }; // end lambda
 
+    // 多线程读入文件
     boost::thread_group thrgroup;
     for( uint32_t i = 0; i < g_nMaxThread; ++i )
         thrgroup.create_thread( std::bind(load_file_thread_routine,
@@ -373,6 +392,7 @@ void load_user_data( const char *filename )
     return;
 }
 
+// 加载 items.csv
 static
 void load_item_data( const char *filename )
 {
@@ -487,6 +507,7 @@ void load_item_data( const char *filename )
     return;
 }
 
+// 加载 interactions_train.csv 只导入用于训练的interaction数据
 static
 void load_interaction_data( const char *filename )
 {
@@ -557,6 +578,7 @@ void load_interaction_data( const char *filename )
 }
 
 
+// 加载 interactions_test.csv 只保留正反馈记录
 static
 void load_test_data( const char *filename )
 {
@@ -583,6 +605,14 @@ void load_test_data( const char *filename )
     } // while
 }
 
+/**
+ * @brief 对单个用户推荐结果评分，评分方法见官方说明文档
+ *
+ * @param rcmdItems        推荐物品集合
+ * @param relevantItems    标准答案
+ * @param nCorrect         推荐正确的数目
+ * @return                 得分
+ */
 static
 float score_one( const std::vector<uint32_t> &rcmdItems, 
                  const std::set<uint32_t> &relevantItems,
@@ -699,6 +729,12 @@ void recommend_with_UserCF_OpenMP( uint32_t k, const char *filename )
     cout << "Total score: " << score << endl;
 }
 
+/**
+ * @brief UserCF 多线程版
+ *
+ * @param k         查找相似物品个数上限
+ * @param filename  结果写入文件
+ */
 static
 void recommend_with_UserCF_mt( uint32_t k, const char *filename )
 {
@@ -714,8 +750,10 @@ void recommend_with_UserCF_mt( uint32_t k, const char *filename )
         return;
     } // if
 
+    // 结果文件标题
     ofs << "UserID\tN_Correct\tPrecisionAt2\tPrecisionAt4\tPrecisionAt6\tPrecisionAt20\tPrecisionAt30\tRecall\tRecommendedItems" << endl;
 
+    // 每一个线程从测试数据集中取数据，调用UserCF算法，进行结果评分，写入文件
     auto threadRoutine = [&] {
         while (true) {
             boost::unique_lock< boost::mutex >  itlck(itMtx);
@@ -752,6 +790,7 @@ void recommend_with_UserCF_mt( uint32_t k, const char *filename )
             score += localScore;
             scLck.unlock();
 
+            // 写入结果到文件
             boost::unique_lock< boost::mutex >  fLck(fileMtx);
             ofs << std::setprecision(3) << uID << "\t" << nCorrect << "\t" 
                                << precision2 << "\t" << precision4 << "\t" 
@@ -840,6 +879,7 @@ void recommend_with_ItemCF_OpenMP( uint32_t k, const char *filename )
     cout << "Total score: " << score << endl;
 }
 
+// 过程同 recommend_with_UserCF_mt
 static
 void recommend_with_ItemCF_mt( uint32_t k, const char *filename )
 {
@@ -916,11 +956,13 @@ void init()
     g_nMaxUserID = 0;
     g_nMaxItemID = 0;
 
+    // 得到cpu核数，最大支持同时并发线程数量
     g_nMaxThread = boost::thread::hardware_concurrency();
     if( !g_nMaxThread )
         g_nMaxThread = 1;
 }
 
+// 按需求生成指定属性的数据集，类似连接查询，与业务无关
 static
 void gen_join_data( const char *filename )
 {
@@ -992,15 +1034,17 @@ int main( int argc, char **argv )
         cout << g_TestData.size() << " users for test." << endl;
         // gen_small_dataset( 80000, 100000 );
         // handle_command();
+
+        // 在这里调用具体算法
         cout << "Input k for usercf / itemcf:" << endl;
-        // int k;
-        // cin >> k;
+        int k;
+        cin >> k;
         cout << "Processing recommendation..." << endl;
         time_t now = time(0);
         cout << ctime(&now) << endl;
         // recommend_with_UserCF_OpenMP( k, "rcmd_result.txt" );
-        // recommend_with_UserCF_mt( k, "rcmd_result.txt" );
-        recommend_with_ItemCF_mt( 30, "rcmd_result.txt" );
+        recommend_with_UserCF_mt( k, "rcmd_result.txt" );
+        // recommend_with_ItemCF_mt( 30, "rcmd_result.txt" );
         cout << "Recommendation Done!" << endl;
         now = time(0);
         cout << ctime(&now) << endl;

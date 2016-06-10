@@ -2,12 +2,9 @@ all: xing
 
 CXX = g++
 
-SRC = src/common.cpp \
-		src/main.cpp \
-		src/recommend_algorithm.cpp
-
+SRC = $(shell find src -type f -name '*.cpp')
 LIBS = -lboost_system -lboost_thread -lglog
-FLAGS = -std=c++11 -pthread -O3
+FLAGS = -std=c++11 -pthread -g -O3
 
 xing:
 	$(CXX) -o $@.bin $(SRC) $(LIBS) $(FLAGS)

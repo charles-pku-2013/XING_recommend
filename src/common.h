@@ -37,6 +37,11 @@ class Item;
 class User;
 class InteractionRecord;
 
+/*
+ * shared_ptr 仅用于存储数据，如 UserDB ItemDB InteractionStore.
+ * 全局只存储一份。
+ * 其他地方用到 User Item Interaction 等数据时一律用普通指针。
+ */
 typedef std::shared_ptr<Item>       Item_sptr;
 typedef std::shared_ptr<const Item> Item_csptr;
 // typedef std::weak_ptr<Item>         Item_wptr;
@@ -46,9 +51,10 @@ typedef std::shared_ptr<const User> User_csptr;
 // typedef std::weak_ptr<User>         User_wptr;
 // typedef std::weak_ptr<const User>   User_cwptr;
 
+// 存储推荐结果
 struct RcmdItem {
-    Item          *pItem;
-    float         weight;
+    Item          *pItem;   // 推荐的item
+    float         weight;   // 权重, 推荐度
 
     RcmdItem() : pItem(NULL), weight(0.0) {}
     RcmdItem( Item *_pItem, float _weight )
@@ -83,11 +89,13 @@ enum InteractionType {
 
 // extern const char *EDU_DEGREE_TEXT[];
 
+// 比较Item指针，依据ID，用于作为map的key
 struct ItemPtrCmp {
     bool operator() (const Item *lhs, 
                      const Item *rhs) const;
 };
 
+// 比较User指针，依据ID，用于作为map的key
 struct UserPtrCmp {
     bool operator() (const User *lhs, 
                      const User *rhs) const;
@@ -96,6 +104,8 @@ struct UserPtrCmp {
 typedef std::set<Item*, ItemPtrCmp, FAST_ALLOCATOR(Item*)>   ItemSet;
 typedef std::set<User*, UserPtrCmp, FAST_ALLOCATOR(User*)>   UserSet;
 
+// 用户网站交互行为数据结构, 依据 interactions.csv
+// 包括user，item的指针，交互类型，时间
 class InteractionRecord {
 public:
     InteractionRecord() {}
@@ -152,6 +162,8 @@ typedef std::shared_ptr< const InteractionRecord > InteractionRecord_csptr;
 // typedef std::function<bool(const InteractionRecord*, const InteractionRecord*)>
             // InteractionRecordCmpFunc;    // for sorting interactions
 
+// 存储 Interaction 记录, 仅作存储用途,使同一个interaction记录只存一份(new一次)，
+// 不提供查询服务
 class InteractionStore {
 public:
     static const uint32_t HASH_SIZE = 10000;
@@ -200,7 +212,16 @@ private:
 };
 
 
-// below used by User and Item
+/**
+ * @brief 以下结构用于user和item的interaction记录
+ * 每个user都有一个InteractionTable，记录着他交互过的items
+ * 同样，每个item也有一个InteractionTable，记录着与它有过交互的users
+ *
+ * InteractionTable 是InteractionMap型的一维数组，数组长度是 N_INTERACTION_TYPE,
+ * 数组下标代表某一类交互类型（如点击）的所有交互记录。
+ *
+ * InteractionMap 定义： {key = userid 或 itemid, value = InteractionRecord*[]}
+ */
 struct InteractionVector
         : std::vector< InteractionRecord*, POOL_ALLOCATOR(InteractionRecord*) >
         , boost::basic_lockable_adapter< boost::mutex > {};
@@ -211,11 +232,13 @@ struct InteractionMap : std::map< uint32_t, InteractionVector, std::less<uint32_
                       , boost::basic_lockable_adapter< boost::mutex > {};
 typedef InteractionMap    InteractionTable[ N_INTERACTION_TYPE ];
 
+
 // redefine the basic STL containers, replace their allocators
 typedef std::set< uint32_t, std::less<uint32_t>, FAST_ALLOCATOR(uint32_t) >  UIntSet;
 typedef std::basic_string< char, std::char_traits<char>, POOL_ALLOCATOR(char) > String;
 
 
+// 用户信息，依据 users.csv
 class User : public boost::basic_lockable_adapter< boost::mutex > {
 public:
     enum EDU_DEGREE {
@@ -306,6 +329,12 @@ public:
     const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
 
+    /*
+     * 从InteractionTable中查询该用户的正反馈物品列表(除删除操作之外的)。
+     * 查询结果存储于成员变量 m_setInterestedItemPtrs, m_setInterestedItemIds 中;
+     * 返回的是成员变量的引用。
+     * update 指示是否重新搜索。由于本系统数据导入后不会在线更新，所以update一般为false
+     */
     ItemSet& interestedItemSet( bool update = false );
     std::set<uint32_t>& interestedItemIdSet( bool update = false );
 
@@ -343,6 +372,7 @@ private:
 };
 
 
+// Item 定义，依据 items.csv
 class Item : public boost::basic_lockable_adapter< boost::mutex > {
 public:
     enum EMPLOYMENT_TYPE {
@@ -356,6 +386,7 @@ public:
     };
 
 public:
+    // 和该物品有相似度的物品
     struct SimilarItem {
         Item *pOther;
         float similarity;
@@ -372,6 +403,13 @@ public:
                             , boost::basic_lockable_adapter<boost::mutex>
     {};
 
+    /**
+     * @brief             添加相似物品
+     *
+     * @param pItem       相似物品
+     * @param similarity  相似度
+     * @param nItems      相似物品个数上限, 每个Item至多保存nItems个最相似物品
+     */
     void addSimilarItem( Item *pItem, float similarity, std::size_t nItems )
     {
         SimilarItem sItem(pItem, similarity);
@@ -485,6 +523,10 @@ public:
     const InteractionMap& interactionMap( uint32_t type_index ) const
     { return m_InteractionTable[ type_index ]; }
 
+    /*
+     * 对该物品有正反馈用户集合
+     * 参见User::interestedItemSet()
+     */
     UserSet& interestedUserSet( bool update = false );
     std::set<uint32_t>& interestedUserIdSet( bool update = false );
 
@@ -525,6 +567,8 @@ private:
 
 
 
+// 存储User的数据库，用userid做一次散列，再存到map中
+// 提供基于id的查询服务
 class UserDB {
 public:
     // total 150w users
@@ -578,6 +622,8 @@ private:
 };
 
 
+// 存储Item的数据库，用itemid做一次散列，再存到map中
+// 提供基于id的查询服务
 class ItemDB {
 public:
     // total 1358098 items
@@ -639,6 +685,7 @@ extern uint32_t                         g_nMaxUserID;
 extern uint32_t                         g_nMaxItemID;
 extern uint32_t                         g_nMaxThread;
 
+// 备忘录法计算 1 / log(1 + n)
 extern float get_factor(std::size_t n);
 
 template < typename T >

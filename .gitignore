@@ -10,6 +10,5 @@
 !*.cpp
 !*.sh
 !.gitignore
-!Makefile.*
-!compile.*
-
+!Makefile
+!*.docx

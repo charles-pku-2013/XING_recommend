@@ -16,9 +16,12 @@ extern std::size_t UserCF( User *user, std::size_t k, std::size_t nItems,
                            std::vector<RcmdItem> &rcmdItems );
 
 
-extern void get_all_items_similarity(std::size_t);
+/*
+ * ItemCF 目前卡在要事先为每个物品找好相似物品集合，由于数目庞大，计算耗耗时估算数月，无法继续
+ */
 extern std::size_t ItemCF( User *user, std::size_t k, std::size_t nItems,
                            std::vector<RcmdItem> &rcmdItems );
+extern void get_all_items_similarity(std::size_t);
 
 #endif
 
